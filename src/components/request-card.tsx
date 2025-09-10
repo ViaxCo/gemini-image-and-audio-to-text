@@ -99,7 +99,7 @@ export function RequestCard(props: {
               </span>
             </div>
             <div className="flex items-center justify-between rounded border px-2 py-1 text-muted-foreground">
-              <span className="opacity-70">Reasoning</span>
+              <span className="opacity-70">Reason</span>
               <span className="tabular-nums">
                 {fmt(card.usage?.reasoningTokens)}
               </span>

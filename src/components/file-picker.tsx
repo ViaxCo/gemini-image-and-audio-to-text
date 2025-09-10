@@ -68,7 +68,7 @@ export function FilePicker(props: {
             ref={inputRef}
             type="file"
             accept="image/jpeg,image/png"
-            className="sr-only"
+            className="sr-only w-px h-px"
             multiple
             onChange={(e) => {
               props.onPickFiles(e.currentTarget.files);
