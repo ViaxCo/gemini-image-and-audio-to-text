@@ -39,24 +39,59 @@ export async function POST(req: Request) {
     // Also emit message-level metadata with usage for broader compatibility.
     return result.toUIMessageStreamResponse({
       messageMetadata: ({ part }) => {
+        // 1) AI SDK v5 exposes totalUsage on the 'finish' event
         if (part.type === "finish") {
-          // Prefer normalized totalUsage; fall back to Google provider's usageMetadata
-          const googleMeta = (
+          try {
+            // eslint-disable-next-line no-console
+            console.log("[usage-debug] finish", {
+              totalUsage: (part as { totalUsage?: unknown }).totalUsage,
+              providerMetadata: (
+                part as { response?: { providerMetadata?: unknown } }
+              ).response?.providerMetadata,
+            });
+          } catch {}
+          return {
+            totalUsage: (part as { totalUsage?: unknown }).totalUsage,
+          } as unknown;
+        }
+        // 2) Some providers (e.g., Google) attach usage only in providerMetadata
+        //    which is available on 'finish-step'. Map it to the normalized shape.
+        if (part.type === "finish-step") {
+          const resp = (
             part as unknown as {
               response?: {
                 providerMetadata?: { google?: { usageMetadata?: unknown } };
               };
             }
-          )?.response?.providerMetadata?.google;
-          const usageFromProvider = googleMeta?.usageMetadata;
-          const fallback = usageFromProvider
-            ? {
+          )?.response;
+          const googleMeta = resp?.providerMetadata?.google as
+            | { usageMetadata?: unknown }
+            | undefined;
+          const usageFromProvider = googleMeta?.usageMetadata as
+            | {
+                promptTokenCount?: number;
+                candidatesTokenCount?: number;
+                totalTokenCount?: number;
+                thoughtsTokenCount?: number;
+              }
+            | undefined;
+          try {
+            // eslint-disable-next-line no-console
+            console.log("[usage-debug] finish-step", {
+              providerUsage: usageFromProvider,
+              providerMetadata: resp?.providerMetadata,
+            });
+          } catch {}
+          if (usageFromProvider) {
+            return {
+              totalUsage: {
                 inputTokens: usageFromProvider.promptTokenCount,
                 outputTokens: usageFromProvider.candidatesTokenCount,
                 totalTokens: usageFromProvider.totalTokenCount,
-              }
-            : undefined;
-          return { totalUsage: part.totalUsage ?? fallback } as unknown;
+                reasoningTokens: usageFromProvider.thoughtsTokenCount,
+              },
+            } as unknown;
+          }
         }
       },
     });
