@@ -1,22 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { Button } from "@/components/ui/button";
+import { useEffect, useState } from "react";
+import { type FileItem, FilePicker } from "@/components/file-picker";
+import { PromptEditor } from "@/components/prompt-editor";
 import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-
-type FileItem = {
-  file: File;
-  previewUrl?: string;
-};
+  RequestCard,
+  type Card as RequestCardType,
+} from "@/components/request-card";
+import { ResultDialog } from "@/components/result-dialog";
+import { Toasts } from "@/components/toasts";
+import { Button } from "@/components/ui/button";
 
 type Card = {
   id: string;
@@ -33,6 +26,8 @@ type Card = {
     totalTokens?: number;
     reasoningTokens?: number;
   };
+  // Extra guard: store a computed total for display reliability
+  usageTotal?: number;
 };
 
 const DEFAULT_PROMPT = `Extract all text from the provided sources, in the numerical order of the sources.
@@ -64,7 +59,6 @@ export default function Home() {
   >([]);
   const [fileView, setFileView] = useState<"list" | "compact">("compact");
   const [rawViewById, setRawViewById] = useState<Record<string, boolean>>({});
-  const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem("ocr_default_prompt");
@@ -91,7 +85,7 @@ export default function Home() {
         `${rejected.length} file(s) rejected (type or >10MB).`,
         "warning",
       );
-    if (inputRef.current) inputRef.current.value = "";
+    // input reset handled within FilePicker
   };
 
   const onDrop: React.DragEventHandler<HTMLDivElement> = (e) => {
@@ -111,7 +105,7 @@ export default function Home() {
       });
     } catch {}
     setFiles([]);
-    if (inputRef.current) inputRef.current.value = "";
+    // input reset handled within FilePicker
   };
 
   const resetPromptToDefault = () => setPrompt(DEFAULT_PROMPT);
@@ -175,8 +169,17 @@ export default function Home() {
       };
       type StreamEvent =
         | { type: "text-delta"; textDelta?: string; delta?: string }
-        | { type: "finish"; totalUsage?: Usage }
-        | { type: "message-metadata"; metadata?: { totalUsage?: Usage } }
+        | {
+            type: "finish";
+            totalUsage?: Usage;
+            usage?: Usage;
+            data?: { totalUsage?: Usage; usage?: Usage };
+          }
+        | {
+            type: "message-metadata";
+            metadata?: { totalUsage?: Usage; usage?: Usage };
+            data?: { totalUsage?: Usage; usage?: Usage };
+          }
         | { type: "error"; error?: unknown }
         | { type: string };
 
@@ -201,23 +204,71 @@ export default function Home() {
             break;
           }
           case "finish": {
-            const totalUsage = (evt as { totalUsage?: Usage }).totalUsage;
+            const e1 = evt as {
+              totalUsage?: Usage;
+              usage?: Usage;
+              data?: { totalUsage?: Usage; usage?: Usage };
+              messageMetadata?: { totalUsage?: Usage; usage?: Usage };
+            };
+            const totalUsage =
+              e1.totalUsage ??
+              e1.usage ??
+              e1.data?.totalUsage ??
+              e1.data?.usage ??
+              e1.messageMetadata?.totalUsage ??
+              e1.messageMetadata?.usage;
+            console.log("[usage-debug/client] finish", { evt, totalUsage });
+            const computedTotal =
+              totalUsage?.totalTokens ??
+              (typeof totalUsage?.inputTokens === "number" &&
+              typeof totalUsage?.outputTokens === "number"
+                ? totalUsage.inputTokens + totalUsage.outputTokens
+                : undefined);
             setCards((prev) =>
               prev.map((c) =>
                 c.id === id
-                  ? { ...c, status: "complete", usage: totalUsage }
+                  ? {
+                      ...c,
+                      status: "complete",
+                      usage: totalUsage,
+                      usageTotal: computedTotal,
+                    }
                   : c,
               ),
             );
             break;
           }
           case "message-metadata": {
-            const totalUsage = (evt as { metadata?: { totalUsage?: Usage } })
-              .metadata?.totalUsage;
+            const e2 = evt as {
+              metadata?: { totalUsage?: Usage; usage?: Usage };
+              data?: { totalUsage?: Usage; usage?: Usage };
+            };
+            const meta =
+              e2.metadata ??
+              e2.data ??
+              (evt as unknown as Record<string, unknown>);
+            // Handle shapes: {metadata:{totalUsage}}, {data:{totalUsage}}, or directly { totalUsage }
+            const totalUsage =
+              (meta as { totalUsage?: Usage }).totalUsage ??
+              (meta as { usage?: Usage }).usage ??
+              undefined;
+            console.log("[usage-debug/client] message-metadata", {
+              evt,
+              meta,
+              totalUsage,
+            });
             if (totalUsage) {
+              const computedTotal =
+                totalUsage.totalTokens ??
+                (typeof totalUsage.inputTokens === "number" &&
+                typeof totalUsage.outputTokens === "number"
+                  ? totalUsage.inputTokens + totalUsage.outputTokens
+                  : undefined);
               setCards((prev) =>
                 prev.map((c) =>
-                  c.id === id ? { ...c, usage: totalUsage } : c,
+                  c.id === id
+                    ? { ...c, usage: totalUsage, usageTotal: computedTotal }
+                    : c,
                 ),
               );
             }
@@ -242,6 +293,29 @@ export default function Home() {
         }
       };
 
+      const processBuffer = () => {
+        // SSE events are separated by double newlines
+        let sepIndex = buffer.indexOf("\n\n");
+        while (sepIndex !== -1) {
+          const rawEvent = buffer.slice(0, sepIndex);
+          buffer = buffer.slice(sepIndex + 2);
+          sepIndex = buffer.indexOf("\n\n");
+          const lines = rawEvent.split("\n");
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith("data:")) continue;
+            const jsonStr = trimmed.slice(5).trim();
+            if (!jsonStr || jsonStr === "[DONE]") continue;
+            try {
+              const evt = JSON.parse(jsonStr);
+              handleEvent(evt as StreamEvent);
+            } catch {
+              // ignore parse errors for non-JSON data lines
+            }
+          }
+        }
+      };
+
       while (!done) {
         const { value, done: d } = await reader.read();
         done = d;
@@ -249,30 +323,11 @@ export default function Home() {
           buffer += decoder
             .decode(value, { stream: !done })
             .replace(/\r\n/g, "\n");
-          // SSE events are separated by double newlines
-          let sepIndex = buffer.indexOf("\n\n");
-          while (sepIndex !== -1) {
-            const rawEvent = buffer.slice(0, sepIndex);
-            buffer = buffer.slice(sepIndex + 2);
-            sepIndex = buffer.indexOf("\n\n");
-
-            // Each event may contain multiple lines; we care about `data:`
-            const lines = rawEvent.split("\n");
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed.startsWith("data:")) continue;
-              const jsonStr = trimmed.slice(5).trim();
-              if (!jsonStr || jsonStr === "[DONE]") continue;
-              try {
-                const evt = JSON.parse(jsonStr);
-                handleEvent(evt);
-              } catch {
-                // ignore parse errors for non-JSON data lines
-              }
-            }
-          }
+          processBuffer();
         }
       }
+      // Flush any remaining buffered event
+      if (buffer.length) processBuffer();
 
       if (!gotData) {
         setCards((prev) =>
@@ -336,7 +391,17 @@ export default function Home() {
       };
       type StreamEvent =
         | { type: "text-delta"; textDelta?: string; delta?: string }
-        | { type: "finish"; totalUsage?: Usage }
+        | {
+            type: "finish";
+            totalUsage?: Usage;
+            usage?: Usage;
+            data?: { totalUsage?: Usage; usage?: Usage };
+          }
+        | {
+            type: "message-metadata";
+            metadata?: { totalUsage?: Usage; usage?: Usage };
+            data?: { totalUsage?: Usage; usage?: Usage };
+          }
         | { type: "error"; error?: unknown }
         | { type: string };
 
@@ -361,14 +426,73 @@ export default function Home() {
             break;
           }
           case "finish": {
-            const totalUsage = (evt as { totalUsage?: Usage }).totalUsage;
+            const e1 = evt as {
+              totalUsage?: Usage;
+              usage?: Usage;
+              data?: { totalUsage?: Usage; usage?: Usage };
+              messageMetadata?: { totalUsage?: Usage; usage?: Usage };
+            };
+            const totalUsage =
+              e1.totalUsage ??
+              e1.usage ??
+              e1.data?.totalUsage ??
+              e1.data?.usage ??
+              e1.messageMetadata?.totalUsage ??
+              e1.messageMetadata?.usage;
+            console.log("[usage-debug/client] finish", { evt, totalUsage });
+            const computedTotal =
+              totalUsage?.totalTokens ??
+              (typeof totalUsage?.inputTokens === "number" &&
+              typeof totalUsage?.outputTokens === "number"
+                ? totalUsage.inputTokens + totalUsage.outputTokens
+                : undefined);
             setCards((prev) =>
               prev.map((c) =>
                 c.id === id
-                  ? { ...c, status: "complete", usage: totalUsage }
+                  ? {
+                      ...c,
+                      status: "complete",
+                      usage: totalUsage,
+                      usageTotal: computedTotal,
+                    }
                   : c,
               ),
             );
+            break;
+          }
+          case "message-metadata": {
+            const e2 = evt as {
+              metadata?: { totalUsage?: Usage; usage?: Usage };
+              data?: { totalUsage?: Usage; usage?: Usage };
+            };
+            const meta =
+              e2.metadata ??
+              e2.data ??
+              (evt as unknown as Record<string, unknown>);
+            const totalUsage =
+              (meta as { totalUsage?: Usage }).totalUsage ??
+              (meta as { usage?: Usage }).usage ??
+              undefined;
+            console.log("[usage-debug/client] message-metadata", {
+              evt,
+              meta,
+              totalUsage,
+            });
+            if (totalUsage) {
+              const computedTotal =
+                totalUsage.totalTokens ??
+                (typeof totalUsage.inputTokens === "number" &&
+                typeof totalUsage.outputTokens === "number"
+                  ? totalUsage.inputTokens + totalUsage.outputTokens
+                  : undefined);
+              setCards((prev) =>
+                prev.map((c) =>
+                  c.id === id
+                    ? { ...c, usage: totalUsage, usageTotal: computedTotal }
+                    : c,
+                ),
+              );
+            }
             break;
           }
           case "error": {
@@ -390,30 +514,37 @@ export default function Home() {
         }
       };
 
+      const processBuffer = () => {
+        let sepIndex = buffer.indexOf("\n\n");
+        while (sepIndex !== -1) {
+          const rawEvent = buffer.slice(0, sepIndex);
+          buffer = buffer.slice(sepIndex + 2);
+          sepIndex = buffer.indexOf("\n\n");
+          const lines = rawEvent.split("\n");
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith("data:")) continue;
+            const jsonStr = trimmed.slice(5).trim();
+            if (!jsonStr || jsonStr === "[DONE]") continue;
+            try {
+              const evt = JSON.parse(jsonStr);
+              handleEvent(evt as StreamEvent);
+            } catch {}
+          }
+        }
+      };
+
       while (!done) {
         const { value, done: d } = await reader.read();
         done = d;
         if (value) {
-          buffer += decoder.decode(value, { stream: !done });
-          let sepIndex = buffer.indexOf("\n\n");
-          while (sepIndex !== -1) {
-            const rawEvent = buffer.slice(0, sepIndex);
-            buffer = buffer.slice(sepIndex + 2);
-            sepIndex = buffer.indexOf("\n\n");
-            const lines = rawEvent.split("\n");
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed.startsWith("data:")) continue;
-              const jsonStr = trimmed.slice(5).trim();
-              if (!jsonStr || jsonStr === "[DONE]") continue;
-              try {
-                const evt = JSON.parse(jsonStr);
-                handleEvent(evt);
-              } catch {}
-            }
-          }
+          buffer += decoder
+            .decode(value, { stream: !done })
+            .replace(/\r\n/g, "\n");
+          processBuffer();
         }
       }
+      if (buffer.length) processBuffer();
 
       if (!gotData) {
         setCards((prev) =>
@@ -453,115 +584,21 @@ export default function Home() {
       <div className="mx-auto max-w-6xl grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Left: Inputs */}
         <section className="space-y-4">
-          <h1 className="text-xl font-semibold">Image → Markdown OCR</h1>
-          <section
-            onDragOver={(e) => e.preventDefault()}
+          <FilePicker
+            files={files}
+            onPickFiles={onPickFiles}
             onDrop={onDrop}
-            aria-label="File dropzone"
-            className="border-2 border-dashed rounded-md p-6 text-sm text-muted-foreground hover:bg-accent/30 transition-colors"
-          >
-            Drag & drop JPEG/PNG here, or
-            <div className="mt-2 flex items-center gap-2">
-              <Input
-                ref={inputRef}
-                type="file"
-                accept="image/jpeg,image/png"
-                multiple
-                onChange={(e) => onPickFiles(e.currentTarget.files)}
-              />
-              <Button
-                variant="outline"
-                onClick={() => inputRef.current?.click()}
-              >
-                Browse
-              </Button>
-            </div>
-          </section>
+            removeFile={removeFile}
+            clearAllFiles={clearAllFiles}
+            fileView={fileView}
+            setFileView={setFileView}
+          />
 
-          {files.length > 0 && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-medium">Selected files</div>
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="opacity-70">View:</span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setFileView(fileView === "list" ? "compact" : "list")
-                    }
-                  >
-                    {fileView === "list" ? "Compact" : "List"}
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={clearAllFiles}
-                  >
-                    Clear all
-                  </Button>
-                </div>
-              </div>
-              {fileView === "list" ? (
-                <div className="space-y-2">
-                  {files.map((item, idx) => (
-                    <div
-                      key={`${item.file.name}-${item.file.size}-${item.file.lastModified}-${idx}`}
-                      className="flex items-center gap-3"
-                    >
-                      <div className="text-sm text-muted-foreground truncate">
-                        {item.file.name}{" "}
-                        <span className="opacity-60">
-                          ({Math.round(item.file.size / 1024)} KB)
-                        </span>
-                      </div>
-                      <Button variant="ghost" onClick={() => removeFile(idx)}>
-                        Remove
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {files.map((item, idx) => (
-                    <div
-                      key={`${item.file.name}-${item.file.size}-${item.file.lastModified}-${idx}`}
-                      className="border rounded px-2 py-1 text-xs flex items-center gap-2"
-                    >
-                      <span className="max-w-40 truncate">
-                        {item.file.name}
-                      </span>
-                      <button
-                        type="button"
-                        className="opacity-70 hover:opacity-100"
-                        onClick={() => removeFile(idx)}
-                        aria-label="Remove"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium" htmlFor="prompt">
-                Prompt
-              </label>
-              <Button variant="ghost" onClick={resetPromptToDefault}>
-                Reset to default
-              </Button>
-            </div>
-            <Textarea
-              rows={12}
-              id="prompt"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-            />
-          </div>
+          <PromptEditor
+            prompt={prompt}
+            setPrompt={setPrompt}
+            onReset={resetPromptToDefault}
+          />
 
           <div className="flex items-center gap-3">
             <Button onClick={submit} disabled={!canSubmit}>
@@ -580,174 +617,40 @@ export default function Home() {
               </div>
             )}
             {cards.map((card) => (
-              <div key={card.id} className="rounded-md border p-3 space-y-2">
-                <div className="flex items-center justify-between gap-2 text-sm">
-                  <div className="font-medium truncate">
-                    {new Date(card.createdAt).toLocaleString()}
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span
-                      className="inline-flex items-center rounded border px-2 py-0.5 text-[11px] leading-none text-muted-foreground"
-                      title={
-                        card.usage
-                          ? `Input: ${card.usage.inputTokens ?? "?"} • Output: ${card.usage.outputTokens ?? "?"} • Total: ${card.usage.totalTokens ?? "?"}`
-                          : card.status === "complete"
-                            ? "Provider did not return usage"
-                            : "Token usage available on finish"
-                      }
-                    >
-                      Tokens:{" "}
-                      {card.usage?.outputTokens ??
-                        card.usage?.totalTokens ??
-                        (card.status === "complete" ? "—" : "…")}
-                    </span>
-                    <div className="text-xs uppercase tracking-wide opacity-70">
-                      {card.status}
-                    </div>
-                  </div>
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {card.files.length} file(s)
-                </div>
-                {card.status === "failed" && (
-                  <div className="text-sm text-destructive">{card.error}</div>
-                )}
-                {card.resultMarkdown && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-xs">
-                      <span className="opacity-70">View:</span>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          setRawViewById((m) => ({
-                            ...m,
-                            [card.id]: !m[card.id],
-                          }))
-                        }
-                      >
-                        {rawViewById[card.id] ? "Preview" : "Raw"}
-                      </Button>
-                    </div>
-                    {rawViewById[card.id] ? (
-                      <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-sm bg-accent/30 p-2 rounded">
-                        {card.resultMarkdown}
-                      </pre>
-                    ) : (
-                      <div className="max-h-64 overflow-auto text-sm border rounded p-2">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {card.resultMarkdown}
-                        </ReactMarkdown>
-                      </div>
-                    )}
-                  </div>
-                )}
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => copy(card.resultMarkdown)}
-                    disabled={!card.resultMarkdown}
-                  >
-                    Copy
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => setExpandedId(card.id)}
-                    disabled={!card.resultMarkdown}
-                  >
-                    Expand
-                  </Button>
-                  <Button variant="ghost" onClick={() => retry(card)}>
-                    Retry
-                  </Button>
-                </div>
-              </div>
+              <RequestCard
+                key={card.id}
+                card={card as RequestCardType}
+                raw={!!rawViewById[card.id]}
+                onToggleRaw={() =>
+                  setRawViewById((m) => ({ ...m, [card.id]: !m[card.id] }))
+                }
+                onCopy={copy}
+                onExpand={(id) => setExpandedId(id)}
+                onRetry={retry}
+              />
             ))}
           </div>
         </section>
       </div>
 
       {/* Result Dialog */}
-      <Dialog
-        open={Boolean(expandedId)}
+      <ResultDialog
+        openId={expandedId}
         onOpenChange={(open) => {
           if (!open) setExpandedId(null);
         }}
-      >
-        {expandedId ? (
-          <DialogContent
-            showCloseButton={false}
-            className="max-w-3xl w-full max-h-[80vh] p-0"
-          >
-            <div className="flex items-center justify-between border-b px-4 py-2">
-              <DialogTitle className="text-sm">Result</DialogTitle>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    copy(cards.find((c) => c.id === eid)?.resultMarkdown)
-                  }
-                >
-                  Copy
-                </Button>
-                <DialogClose asChild>
-                  <Button size="sm">Close</Button>
-                </DialogClose>
-              </div>
-            </div>
-            <div className="p-4 overflow-auto max-h-[70vh] space-y-2">
-              <div className="flex items-center gap-2 text-xs">
-                <span className="opacity-70">View:</span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    setRawViewById((m) => ({
-                      ...m,
-                      [eid]: !m[eid],
-                    }))
-                  }
-                >
-                  {rawViewById[eid] ? "Preview" : "Raw"}
-                </Button>
-              </div>
-              {rawViewById[eid] ? (
-                <pre className="whitespace-pre-wrap text-sm">
-                  {cards.find((c) => c.id === eid)?.resultMarkdown}
-                </pre>
-              ) : (
-                <div className="text-sm">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {cards.find((c) => c.id === eid)?.resultMarkdown || ""}
-                  </ReactMarkdown>
-                </div>
-              )}
-            </div>
-          </DialogContent>
-        ) : null}
-      </Dialog>
+        markdown={cards.find((c) => c.id === eid)?.resultMarkdown}
+        raw={!!rawViewById[eid]}
+        onToggleRaw={() =>
+          setRawViewById((m) => ({
+            ...m,
+            [eid]: !m[eid],
+          }))
+        }
+        onCopy={(text) => copy(text)}
+      />
 
-      {/* Toasts */}
-      <div className="fixed right-4 top-4 z-50 space-y-2">
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            className={
-              "rounded-md border px-3 py-2 text-sm shadow-md " +
-              (t.variant === "success"
-                ? "bg-emerald-600/10 border-emerald-600/30 text-emerald-800 dark:text-emerald-200"
-                : t.variant === "warning"
-                  ? "bg-amber-600/10 border-amber-600/30 text-amber-800 dark:text-amber-200"
-                  : t.variant === "destructive"
-                    ? "bg-red-600/10 border-red-600/30 text-red-800 dark:text-red-200"
-                    : "bg-accent/40 border-accent")
-            }
-          >
-            {t.msg}
-          </div>
-        ))}
-      </div>
+      <Toasts toasts={toasts} />
     </div>
   );
 }
