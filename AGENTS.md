@@ -7,6 +7,7 @@
 - Use Context7 to look up documentation for every package you interact with.
 - Only commit when explicitly requested.
 - Always run `npm run format` after changes.
+- Never start the dev server.
 
 ---
 
