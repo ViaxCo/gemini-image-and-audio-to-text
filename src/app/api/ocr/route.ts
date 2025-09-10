@@ -41,15 +41,6 @@ export async function POST(req: Request) {
       messageMetadata: ({ part }) => {
         // 1) AI SDK v5 exposes totalUsage on the 'finish' event
         if (part.type === "finish") {
-          try {
-            // eslint-disable-next-line no-console
-            console.log("[usage-debug] finish", {
-              totalUsage: (part as { totalUsage?: unknown }).totalUsage,
-              providerMetadata: (
-                part as { response?: { providerMetadata?: unknown } }
-              ).response?.providerMetadata,
-            });
-          } catch {}
           return {
             totalUsage: (part as { totalUsage?: unknown }).totalUsage,
           } as unknown;
@@ -75,13 +66,6 @@ export async function POST(req: Request) {
                 thoughtsTokenCount?: number;
               }
             | undefined;
-          try {
-            // eslint-disable-next-line no-console
-            console.log("[usage-debug] finish-step", {
-              providerUsage: usageFromProvider,
-              providerMetadata: resp?.providerMetadata,
-            });
-          } catch {}
           if (usageFromProvider) {
             return {
               totalUsage: {

@@ -92,19 +92,11 @@ export async function readAiSdkStream(
       }
       case "finish": {
         const usage = extractUsageFromFinish(evt);
-        try {
-          // eslint-disable-next-line no-console
-          console.log("[usage-debug] finish", { evt, usage });
-        } catch {}
         handlers.onUsage(usage);
         break;
       }
       case "message-metadata": {
         const usage = extractUsageFromMetadata(evt);
-        try {
-          // eslint-disable-next-line no-console
-          console.log("[usage-debug] message-metadata", { evt, usage });
-        } catch {}
         if (usage) handlers.onUsage(usage);
         break;
       }
