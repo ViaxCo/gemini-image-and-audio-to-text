@@ -10,6 +10,11 @@ import {
 import { ResultDialog } from "@/components/result-dialog";
 import { Toasts } from "@/components/toasts";
 import { Button } from "@/components/ui/button";
+import {
+  computeUsageTotal,
+  readAiSdkStream,
+  type Usage as StreamUsage,
+} from "@/lib/ai-stream";
 
 type Card = {
   id: string;
@@ -39,6 +44,7 @@ For each source:
 	4.	After the extracted and formatted text for the source, insert a blank line.
 	5.	On the new line, append the page number. Use the printed page number visible in the image. If no page number is visible, infer one based on the order provided (Page 1, Page 2, ...).
 	6.	Format the page number as: **Page [number]**
+	7.	Format bold text in the source in **bold**.
 
 Example formatting:
 [Extracted and formatted text of the source, with paragraphs and scripture passages separated correctly.]
@@ -103,7 +109,7 @@ export default function Home() {
       files.forEach((f) => {
         if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
       });
-    } catch {}
+    } catch { }
     setFiles([]);
     // input reset handled within FilePicker
   };
@@ -124,221 +130,104 @@ export default function Home() {
 
   const canSubmit = files.length > 0 && prompt.trim().length > 0;
 
-  const submit = async () => {
-    if (!canSubmit) return;
+  // --- Small reused helpers (preserve exact behavior/messages) ---
+  function buildFormData(p: string, fs: File[]): FormData {
+    const form = new FormData();
+    form.append("prompt", p);
+    for (const file of fs) form.append("files", file);
+    return form;
+  }
+
+  function addProcessingCard(
+    args: Pick<Card, "prompt" | "files"> & { filesBlob?: { file: File }[] },
+  ): string {
     const id = crypto.randomUUID();
     const createdAt = Date.now();
     setCards((prev) => [
       {
         id,
-        prompt,
-        files: files.map((f) => ({
-          name: f.file.name,
-          size: f.file.size,
-          type: f.file.type,
-        })),
-        filesBlob: files.map((f) => ({ file: f.file })),
+        prompt: args.prompt,
+        files: args.files,
+        filesBlob: args.filesBlob,
         status: "processing",
         createdAt,
       },
       ...prev,
     ]);
+    return id;
+  }
 
-    const form = new FormData();
-    form.append("prompt", prompt);
-    for (const item of files) {
-      form.append("files", item.file);
-    }
+  async function runOcrStream(
+    id: string,
+    form: FormData,
+    opts: { showErrorToast: boolean },
+  ) {
+    const res = await fetch("/api/ocr", { method: "POST", body: form });
+    if (!res.ok || !res.body) throw new Error("Request failed");
 
-    try {
-      const res = await fetch("/api/ocr", { method: "POST", body: form });
-      if (!res.ok || !res.body) throw new Error("Request failed");
-
-      // Parse AI SDK Data Stream Protocol (SSE with JSON payloads)
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let gotData = false;
-      let done = false;
-
-      type Usage = {
-        inputTokens?: number;
-        outputTokens?: number;
-        totalTokens?: number;
-        reasoningTokens?: number;
-      };
-      type StreamEvent =
-        | { type: "text-delta"; textDelta?: string; delta?: string }
-        | {
-            type: "finish";
-            totalUsage?: Usage;
-            usage?: Usage;
-            data?: { totalUsage?: Usage; usage?: Usage };
-          }
-        | {
-            type: "message-metadata";
-            metadata?: { totalUsage?: Usage; usage?: Usage };
-            data?: { totalUsage?: Usage; usage?: Usage };
-          }
-        | { type: "error"; error?: unknown }
-        | { type: string };
-
-      const handleEvent = (evt: StreamEvent) => {
-        if (!evt || typeof evt !== "object") return;
-        switch (evt.type) {
-          case "text-delta": {
-            const delta: string = evt.textDelta ?? evt.delta ?? "";
-            if (delta) {
-              gotData = true;
-              setCards((prev) =>
-                prev.map((c) =>
-                  c.id === id
-                    ? {
-                        ...c,
-                        resultMarkdown: (c.resultMarkdown || "") + delta,
-                      }
-                    : c,
-                ),
-              );
-            }
-            break;
-          }
-          case "finish": {
-            const e1 = evt as {
-              totalUsage?: Usage;
-              usage?: Usage;
-              data?: { totalUsage?: Usage; usage?: Usage };
-              messageMetadata?: { totalUsage?: Usage; usage?: Usage };
-            };
-            const totalUsage =
-              e1.totalUsage ??
-              e1.usage ??
-              e1.data?.totalUsage ??
-              e1.data?.usage ??
-              e1.messageMetadata?.totalUsage ??
-              e1.messageMetadata?.usage;
-            console.log("[usage-debug/client] finish", { evt, totalUsage });
-            const computedTotal =
-              totalUsage?.totalTokens ??
-              (typeof totalUsage?.inputTokens === "number" &&
-              typeof totalUsage?.outputTokens === "number"
-                ? totalUsage.inputTokens + totalUsage.outputTokens
-                : undefined);
-            setCards((prev) =>
-              prev.map((c) =>
-                c.id === id
-                  ? {
-                      ...c,
-                      status: "complete",
-                      usage: totalUsage,
-                      usageTotal: computedTotal,
-                    }
-                  : c,
-              ),
-            );
-            break;
-          }
-          case "message-metadata": {
-            const e2 = evt as {
-              metadata?: { totalUsage?: Usage; usage?: Usage };
-              data?: { totalUsage?: Usage; usage?: Usage };
-            };
-            const meta =
-              e2.metadata ??
-              e2.data ??
-              (evt as unknown as Record<string, unknown>);
-            // Handle shapes: {metadata:{totalUsage}}, {data:{totalUsage}}, or directly { totalUsage }
-            const totalUsage =
-              (meta as { totalUsage?: Usage }).totalUsage ??
-              (meta as { usage?: Usage }).usage ??
-              undefined;
-            console.log("[usage-debug/client] message-metadata", {
-              evt,
-              meta,
-              totalUsage,
-            });
-            if (totalUsage) {
-              const computedTotal =
-                totalUsage.totalTokens ??
-                (typeof totalUsage.inputTokens === "number" &&
-                typeof totalUsage.outputTokens === "number"
-                  ? totalUsage.inputTokens + totalUsage.outputTokens
-                  : undefined);
-              setCards((prev) =>
-                prev.map((c) =>
-                  c.id === id
-                    ? { ...c, usage: totalUsage, usageTotal: computedTotal }
-                    : c,
-                ),
-              );
-            }
-            break;
-          }
-          case "error": {
-            const message =
-              typeof (evt as { error?: unknown }).error === "string"
-                ? (evt as { error?: string }).error
-                : (evt as { error?: { message?: string } }).error?.message ||
-                  "Unknown error";
-            setCards((prev) =>
-              prev.map((c) =>
-                c.id === id ? { ...c, status: "failed", error: message } : c,
-              ),
-            );
-            showToast(`Failed: ${message}`, "destructive");
-            break;
-          }
-          default:
-            break;
-        }
-      };
-
-      const processBuffer = () => {
-        // SSE events are separated by double newlines
-        let sepIndex = buffer.indexOf("\n\n");
-        while (sepIndex !== -1) {
-          const rawEvent = buffer.slice(0, sepIndex);
-          buffer = buffer.slice(sepIndex + 2);
-          sepIndex = buffer.indexOf("\n\n");
-          const lines = rawEvent.split("\n");
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith("data:")) continue;
-            const jsonStr = trimmed.slice(5).trim();
-            if (!jsonStr || jsonStr === "[DONE]") continue;
-            try {
-              const evt = JSON.parse(jsonStr);
-              handleEvent(evt as StreamEvent);
-            } catch {
-              // ignore parse errors for non-JSON data lines
-            }
-          }
-        }
-      };
-
-      while (!done) {
-        const { value, done: d } = await reader.read();
-        done = d;
-        if (value) {
-          buffer += decoder
-            .decode(value, { stream: !done })
-            .replace(/\r\n/g, "\n");
-          processBuffer();
-        }
-      }
-      // Flush any remaining buffered event
-      if (buffer.length) processBuffer();
-
-      if (!gotData) {
+    const gotData = await readAiSdkStream(res.body, {
+      onTextDelta: (delta: string) => {
         setCards((prev) =>
           prev.map((c) =>
             c.id === id
-              ? { ...c, status: "failed", error: "Empty response" }
+              ? { ...c, resultMarkdown: (c.resultMarkdown || "") + delta }
               : c,
           ),
         );
-        showToast("Empty response from server", "destructive");
-      }
+      },
+      onUsage: (usage: StreamUsage | undefined) => {
+        if (!usage) return;
+        const computedTotal = computeUsageTotal(usage);
+        setCards((prev) =>
+          prev.map((c) =>
+            c.id === id
+              ? { ...c, status: "complete", usage, usageTotal: computedTotal }
+              : c,
+          ),
+        );
+      },
+      onError: (message: string) => {
+        setCards((prev) =>
+          prev.map((c) =>
+            c.id === id ? { ...c, status: "failed", error: message } : c,
+          ),
+        );
+        if (opts.showErrorToast) {
+          showToast(`Failed: ${message}`, "destructive");
+        }
+      },
+    });
+
+    if (!gotData) {
+      setCards((prev) =>
+        prev.map((c) =>
+          c.id === id ? { ...c, status: "failed", error: "Empty response" } : c,
+        ),
+      );
+      showToast("Empty response from server", "destructive");
+    }
+  }
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    const id = addProcessingCard({
+      prompt,
+      files: files.map((f) => ({
+        name: f.file.name,
+        size: f.file.size,
+        type: f.file.type,
+      })),
+      filesBlob: files.map((f) => ({ file: f.file })),
+    });
+    try {
+      await runOcrStream(
+        id,
+        buildFormData(
+          prompt,
+          files.map((f) => f.file),
+        ),
+        { showErrorToast: true },
+      );
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Unknown error";
       setCards((prev) =>
@@ -355,207 +244,20 @@ export default function Home() {
       alert("Original files not available for retry.");
       return;
     }
-    const id = crypto.randomUUID();
-    const createdAt = Date.now();
-    setCards((prev) => [
-      {
-        id,
-        prompt: card.prompt,
-        files: card.files,
-        filesBlob: card.filesBlob,
-        status: "processing",
-        createdAt,
-      },
-      ...prev,
-    ]);
-
-    const form = new FormData();
-    form.append("prompt", card.prompt);
-    for (const item of card.filesBlob) form.append("files", item.file);
-
+    const id = addProcessingCard({
+      prompt: card.prompt,
+      files: card.files,
+      filesBlob: card.filesBlob,
+    });
     try {
-      const res = await fetch("/api/ocr", { method: "POST", body: form });
-      if (!res.ok || !res.body) throw new Error("Request failed");
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let gotData = false;
-      let done = false;
-
-      type Usage = {
-        inputTokens?: number;
-        outputTokens?: number;
-        totalTokens?: number;
-        reasoningTokens?: number;
-      };
-      type StreamEvent =
-        | { type: "text-delta"; textDelta?: string; delta?: string }
-        | {
-            type: "finish";
-            totalUsage?: Usage;
-            usage?: Usage;
-            data?: { totalUsage?: Usage; usage?: Usage };
-          }
-        | {
-            type: "message-metadata";
-            metadata?: { totalUsage?: Usage; usage?: Usage };
-            data?: { totalUsage?: Usage; usage?: Usage };
-          }
-        | { type: "error"; error?: unknown }
-        | { type: string };
-
-      const handleEvent = (evt: StreamEvent) => {
-        if (!evt || typeof evt !== "object") return;
-        switch (evt.type) {
-          case "text-delta": {
-            const delta: string = evt.textDelta ?? evt.delta ?? "";
-            if (delta) {
-              gotData = true;
-              setCards((prev) =>
-                prev.map((c) =>
-                  c.id === id
-                    ? {
-                        ...c,
-                        resultMarkdown: (c.resultMarkdown || "") + delta,
-                      }
-                    : c,
-                ),
-              );
-            }
-            break;
-          }
-          case "finish": {
-            const e1 = evt as {
-              totalUsage?: Usage;
-              usage?: Usage;
-              data?: { totalUsage?: Usage; usage?: Usage };
-              messageMetadata?: { totalUsage?: Usage; usage?: Usage };
-            };
-            const totalUsage =
-              e1.totalUsage ??
-              e1.usage ??
-              e1.data?.totalUsage ??
-              e1.data?.usage ??
-              e1.messageMetadata?.totalUsage ??
-              e1.messageMetadata?.usage;
-            console.log("[usage-debug/client] finish", { evt, totalUsage });
-            const computedTotal =
-              totalUsage?.totalTokens ??
-              (typeof totalUsage?.inputTokens === "number" &&
-              typeof totalUsage?.outputTokens === "number"
-                ? totalUsage.inputTokens + totalUsage.outputTokens
-                : undefined);
-            setCards((prev) =>
-              prev.map((c) =>
-                c.id === id
-                  ? {
-                      ...c,
-                      status: "complete",
-                      usage: totalUsage,
-                      usageTotal: computedTotal,
-                    }
-                  : c,
-              ),
-            );
-            break;
-          }
-          case "message-metadata": {
-            const e2 = evt as {
-              metadata?: { totalUsage?: Usage; usage?: Usage };
-              data?: { totalUsage?: Usage; usage?: Usage };
-            };
-            const meta =
-              e2.metadata ??
-              e2.data ??
-              (evt as unknown as Record<string, unknown>);
-            const totalUsage =
-              (meta as { totalUsage?: Usage }).totalUsage ??
-              (meta as { usage?: Usage }).usage ??
-              undefined;
-            console.log("[usage-debug/client] message-metadata", {
-              evt,
-              meta,
-              totalUsage,
-            });
-            if (totalUsage) {
-              const computedTotal =
-                totalUsage.totalTokens ??
-                (typeof totalUsage.inputTokens === "number" &&
-                typeof totalUsage.outputTokens === "number"
-                  ? totalUsage.inputTokens + totalUsage.outputTokens
-                  : undefined);
-              setCards((prev) =>
-                prev.map((c) =>
-                  c.id === id
-                    ? { ...c, usage: totalUsage, usageTotal: computedTotal }
-                    : c,
-                ),
-              );
-            }
-            break;
-          }
-          case "error": {
-            const message =
-              typeof (evt as { error?: unknown }).error === "string"
-                ? (evt as { error?: string }).error
-                : (evt as { errorText?: string }).errorText ||
-                  (evt as { error?: { message?: string } }).error?.message ||
-                  "Unknown error";
-            setCards((prev) =>
-              prev.map((c) =>
-                c.id === id ? { ...c, status: "failed", error: message } : c,
-              ),
-            );
-            break;
-          }
-          default:
-            break;
-        }
-      };
-
-      const processBuffer = () => {
-        let sepIndex = buffer.indexOf("\n\n");
-        while (sepIndex !== -1) {
-          const rawEvent = buffer.slice(0, sepIndex);
-          buffer = buffer.slice(sepIndex + 2);
-          sepIndex = buffer.indexOf("\n\n");
-          const lines = rawEvent.split("\n");
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith("data:")) continue;
-            const jsonStr = trimmed.slice(5).trim();
-            if (!jsonStr || jsonStr === "[DONE]") continue;
-            try {
-              const evt = JSON.parse(jsonStr);
-              handleEvent(evt as StreamEvent);
-            } catch {}
-          }
-        }
-      };
-
-      while (!done) {
-        const { value, done: d } = await reader.read();
-        done = d;
-        if (value) {
-          buffer += decoder
-            .decode(value, { stream: !done })
-            .replace(/\r\n/g, "\n");
-          processBuffer();
-        }
-      }
-      if (buffer.length) processBuffer();
-
-      if (!gotData) {
-        setCards((prev) =>
-          prev.map((c) =>
-            c.id === id
-              ? { ...c, status: "failed", error: "Empty response" }
-              : c,
-          ),
-        );
-        showToast("Empty response from server", "destructive");
-      }
+      await runOcrStream(
+        id,
+        buildFormData(
+          card.prompt,
+          card.filesBlob.map((f) => f.file),
+        ),
+        { showErrorToast: false },
+      );
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Unknown error";
       setCards((prev) =>
@@ -563,6 +265,7 @@ export default function Home() {
           c.id === id ? { ...c, status: "failed", error: message } : c,
         ),
       );
+      // Note: intentionally no toast here to preserve previous behavior.
     }
   };
 
