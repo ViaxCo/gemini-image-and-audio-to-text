@@ -243,11 +243,23 @@ export default function Home() {
       alert("Original files not available for retry.");
       return;
     }
-    const id = addProcessingCard({
-      prompt: card.prompt,
-      files: card.files,
-      filesBlob: card.filesBlob,
-    });
+    const id = card.id;
+    // Reset this card instead of creating a new one
+    setCards((prev) =>
+      prev.map((c) =>
+        c.id === id
+          ? {
+              ...c,
+              status: "processing",
+              resultMarkdown: undefined,
+              error: undefined,
+              usage: undefined,
+              usageTotal: undefined,
+              createdAt: Date.now(),
+            }
+          : c,
+      ),
+    );
     try {
       await runOcrStream(
         id,
@@ -340,6 +352,7 @@ export default function Home() {
           if (!open) setExpandedId(null);
         }}
         markdown={cards.find((c) => c.id === eid)?.resultMarkdown}
+        files={cards.find((c) => c.id === eid)?.files}
         raw={!!rawViewById[eid]}
         onToggleRaw={() =>
           setRawViewById((m) => ({

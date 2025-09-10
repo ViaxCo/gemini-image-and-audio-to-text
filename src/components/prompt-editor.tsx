@@ -21,6 +21,7 @@ export function PromptEditor(props: {
       <Textarea
         rows={12}
         id="prompt"
+        className="text-sm"
         value={props.prompt}
         onChange={(e) => props.setPrompt(e.target.value)}
       />

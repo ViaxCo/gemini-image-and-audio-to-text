@@ -1,7 +1,15 @@
 "use client";
+import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   CardContent,
   CardHeader,
@@ -38,6 +46,7 @@ export function RequestCard(props: {
   onRetry: (card: Card) => void;
 }) {
   const { card } = props;
+  const [filesOpen, setFilesOpen] = React.useState(false);
   const tokensTitle = card.usage
     ? `Input: ${card.usage.inputTokens ?? "?"} • Output: ${card.usage.outputTokens ?? "?"} • Total: ${card.usage.totalTokens ?? "?"}`
     : card.status === "complete"
@@ -62,6 +71,20 @@ export function RequestCard(props: {
     typeof tokensDisplay === "number"
       ? tokensDisplay.toLocaleString()
       : tokensDisplay;
+
+  const downloadMarkdown = () => {
+    if (!card.resultMarkdown) return;
+    const blob = new Blob([card.resultMarkdown], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const base = (card.files?.[0]?.name || "ocr").replace(/\.[^/.]+$/, "");
+    a.href = url;
+    a.download = `${base || "ocr"}.md`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <UICard>
@@ -123,8 +146,86 @@ export function RequestCard(props: {
         )}
       </CardHeader>
       <CardContent className="pt-6">
-        <div className="text-xs text-muted-foreground mb-2">
-          {card.files.length} file(s)
+        {/* Compact filenames: first … last with +N more toggle */}
+        <div className="mb-2">
+          <div className="flex flex-wrap items-center gap-1">
+            {(() => {
+              if (card.files.length === 0) return null;
+              if (card.files.length === 1)
+                return (
+                  <Badge
+                    key={card.files[0].name}
+                    variant="outline"
+                    title={card.files[0].name}
+                    className="max-w-[12rem] truncate"
+                  >
+                    {card.files[0].name}
+                  </Badge>
+                );
+              const first = card.files[0];
+              const last = card.files[card.files.length - 1];
+              return (
+                <>
+                  <Badge
+                    key={`first-${first.name}`}
+                    variant="outline"
+                    title={first.name}
+                    className="max-w-[12rem] truncate"
+                  >
+                    {first.name}
+                  </Badge>
+                  <span aria-hidden className="mx-0.5 text-muted-foreground">
+                    …
+                  </span>
+                  <Badge
+                    key={`last-${last.name}`}
+                    variant="outline"
+                    title={last.name}
+                    className="max-w-[12rem] truncate"
+                  >
+                    {last.name}
+                  </Badge>
+                </>
+              );
+            })()}
+            {card.files.length > 2 && (
+              <Collapsible open={filesOpen} onOpenChange={setFilesOpen}>
+                <CollapsibleTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2"
+                    aria-expanded={filesOpen}
+                    aria-controls={`files-${card.id}`}
+                    title="Show all files"
+                  >
+                    +{card.files.length - 2} more
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div id={`files-${card.id}`} className="mt-2">
+                    <ScrollArea className="max-h-28 rounded border">
+                      <div className="p-2 flex flex-wrap gap-1">
+                        {card.files.map((f) => (
+                          <Badge
+                            key={`full-${f.name}`}
+                            variant="secondary"
+                            title={f.name}
+                            className="max-w-[14rem] truncate"
+                          >
+                            {f.name}
+                          </Badge>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+            <span className="text-xs text-muted-foreground ml-auto">
+              {card.files.length} file{card.files.length === 1 ? "" : "s"}
+            </span>
+          </div>
         </div>
         {card.status === "failed" && (
           <div className="text-sm text-destructive">{card.error}</div>
@@ -150,13 +251,20 @@ export function RequestCard(props: {
             )}
           </div>
         )}
-        <div className="flex items-center gap-2 mt-3">
+        <div className="flex items-center flex-wrap gap-2 mt-3">
           <Button
             variant="outline"
             onClick={() => props.onCopy(card.resultMarkdown)}
             disabled={!card.resultMarkdown}
           >
             Copy
+          </Button>
+          <Button
+            variant="outline"
+            onClick={downloadMarkdown}
+            disabled={!card.resultMarkdown}
+          >
+            Download
           </Button>
           <Button
             variant="outline"

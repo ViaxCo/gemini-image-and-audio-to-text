@@ -17,7 +17,21 @@ export function ResultDialog(props: {
   raw: boolean;
   onToggleRaw: () => void;
   onCopy: (text?: string) => void;
+  files?: { name: string }[];
 }) {
+  const downloadMarkdown = () => {
+    if (!props.markdown) return;
+    const blob = new Blob([props.markdown], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const base = (props.files?.[0]?.name || "ocr").replace(/\.[^/.]+$/, "");
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${base || "ocr"}.md`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
   return (
     <Dialog open={Boolean(props.openId)} onOpenChange={props.onOpenChange}>
       {props.openId ? (
@@ -34,6 +48,14 @@ export function ResultDialog(props: {
                 onClick={() => props.onCopy(props.markdown)}
               >
                 Copy
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={downloadMarkdown}
+                disabled={!props.markdown}
+              >
+                Download
               </Button>
               <DialogClose asChild>
                 <Button size="sm">Close</Button>
