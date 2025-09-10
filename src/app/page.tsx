@@ -1,103 +1,551 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+
+type FileItem = {
+  file: File;
+  previewUrl?: string;
+};
+
+type Card = {
+  id: string;
+  prompt: string;
+  files: { name: string; size: number; type: string }[];
+  filesBlob?: { file: File }[]; // for Retry
+  status: "processing" | "complete" | "failed";
+  resultMarkdown?: string;
+  error?: string;
+  createdAt: number;
+};
+
+const DEFAULT_PROMPT = `Extract all text from the provided sources, in the numerical order of the sources.
+
+For each source:
+	1.	Extract the full text.
+	2.	Reconstruct the text into readable paragraphs. A new paragraph should begin where there is a clear break in the original text, such as a new line, indentation, or topic change. Do not merge paragraphs that are clearly separate in the source.
+	3.	Ensure each distinct scripture passage is separated from the surrounding text by a blank line. For example, if the text contains "John 3:16" followed by commentary, the scripture should be a separate paragraph.
+	4.	After the extracted and formatted text for the source, insert a blank line.
+	5.	On the new line, append the page number. Use the printed page number visible in the image. If no page number is visible, infer one based on the order provided (Page 1, Page 2, ...).
+	6.	Format the page number as: **Page [number]**
+
+Example formatting:
+[Extracted and formatted text of the source, with paragraphs and scripture passages separated correctly.]
+
+**Page 1**`;
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [prompt, setPrompt] = useState<string>(DEFAULT_PROMPT);
+  const [files, setFiles] = useState<FileItem[]>([]);
+  const [cards, setCards] = useState<Card[]>([]);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<
+    {
+      id: string;
+      msg: string;
+      variant?: "success" | "warning" | "destructive";
+    }[]
+  >([]);
+  const [fileView, setFileView] = useState<"list" | "compact">("list");
+  const [rawViewById, setRawViewById] = useState<Record<string, boolean>>({});
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+  useEffect(() => {
+    const saved = localStorage.getItem("ocr_default_prompt");
+    if (saved) setPrompt(saved);
+  }, []);
+  useEffect(() => {
+    localStorage.setItem("ocr_default_prompt", prompt);
+  }, [prompt]);
+
+  const onPickFiles = (picked: FileList | null) => {
+    if (!picked) return;
+    const all = Array.from(picked);
+    const accepted = all.filter(
+      (f) => /image\/(jpeg|jpg|png)/.test(f.type) && f.size <= 10 * 1024 * 1024,
+    );
+    const rejected = all.filter((f) => !accepted.includes(f));
+    const next: FileItem[] = accepted.map((f) => ({
+      file: f,
+      previewUrl: URL.createObjectURL(f),
+    }));
+    setFiles((prev) => [...prev, ...next]);
+    if (rejected.length)
+      showToast(
+        `${rejected.length} file(s) rejected (type or >10MB).`,
+        "warning",
+      );
+    if (inputRef.current) inputRef.current.value = "";
+  };
+
+  const onDrop: React.DragEventHandler<HTMLDivElement> = (e) => {
+    e.preventDefault();
+    onPickFiles(e.dataTransfer.files);
+  };
+
+  const removeFile = (idx: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const resetPromptToDefault = () => setPrompt(DEFAULT_PROMPT);
+
+  const showToast = (
+    msg: string,
+    variant?: "success" | "warning" | "destructive",
+  ) => {
+    const id = crypto.randomUUID();
+    setToasts((prev) => [...prev, { id, msg, variant }]);
+    setTimeout(
+      () => setToasts((prev) => prev.filter((t) => t.id !== id)),
+      2400,
+    );
+  };
+
+  const canSubmit = files.length > 0 && prompt.trim().length > 0;
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    const id = crypto.randomUUID();
+    const createdAt = Date.now();
+    setCards((prev) => [
+      {
+        id,
+        prompt,
+        files: files.map((f) => ({
+          name: f.file.name,
+          size: f.file.size,
+          type: f.file.type,
+        })),
+        filesBlob: files.map((f) => ({ file: f.file })),
+        status: "processing",
+        createdAt,
+      },
+      ...prev,
+    ]);
+
+    const form = new FormData();
+    form.append("prompt", prompt);
+    for (const item of files) {
+      form.append("files", item.file);
+    }
+
+    try {
+      const res = await fetch("/api/ocr", { method: "POST", body: form });
+      if (!res.ok || !res.body) throw new Error("Request failed");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+      let gotData = false;
+      while (!done) {
+        const { value, done: d } = await reader.read();
+        done = d;
+        if (value) {
+          const chunk = decoder.decode(value, { stream: !done });
+          setCards((prev) =>
+            prev.map((c) =>
+              c.id === id
+                ? { ...c, resultMarkdown: (c.resultMarkdown || "") + chunk }
+                : c,
+            ),
+          );
+          if (value.length > 0) gotData = true;
+        }
+      }
+      if (gotData) {
+        setCards((prev) =>
+          prev.map((c) => (c.id === id ? { ...c, status: "complete" } : c)),
+        );
+      } else {
+        setCards((prev) =>
+          prev.map((c) =>
+            c.id === id
+              ? { ...c, status: "failed", error: "Empty response" }
+              : c,
+          ),
+        );
+        showToast("Empty response from server", "destructive");
+      }
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Unknown error";
+      setCards((prev) =>
+        prev.map((c) =>
+          c.id === id ? { ...c, status: "failed", error: message } : c,
+        ),
+      );
+      showToast(`Failed: ${message}`, "destructive");
+    }
+  };
+
+  const retry = async (card: Card) => {
+    if (!card.filesBlob?.length) {
+      alert("Original files not available for retry.");
+      return;
+    }
+    const id = crypto.randomUUID();
+    const createdAt = Date.now();
+    setCards((prev) => [
+      {
+        id,
+        prompt: card.prompt,
+        files: card.files,
+        filesBlob: card.filesBlob,
+        status: "processing",
+        createdAt,
+      },
+      ...prev,
+    ]);
+
+    const form = new FormData();
+    form.append("prompt", card.prompt);
+    for (const item of card.filesBlob) form.append("files", item.file);
+
+    try {
+      const res = await fetch("/api/ocr", { method: "POST", body: form });
+      if (!res.ok || !res.body) throw new Error("Request failed");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+      let gotData = false;
+      while (!done) {
+        const { value, done: d } = await reader.read();
+        done = d;
+        if (value) {
+          const chunk = decoder.decode(value, { stream: !done });
+          setCards((prev) =>
+            prev.map((c) =>
+              c.id === id
+                ? { ...c, resultMarkdown: (c.resultMarkdown || "") + chunk }
+                : c,
+            ),
+          );
+          if (value.length > 0) gotData = true;
+        }
+      }
+      if (gotData) {
+        setCards((prev) =>
+          prev.map((c) => (c.id === id ? { ...c, status: "complete" } : c)),
+        );
+      } else {
+        setCards((prev) =>
+          prev.map((c) =>
+            c.id === id
+              ? { ...c, status: "failed", error: "Empty response" }
+              : c,
+          ),
+        );
+        showToast("Empty response from server", "destructive");
+      }
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Unknown error";
+      setCards((prev) =>
+        prev.map((c) =>
+          c.id === id ? { ...c, status: "failed", error: message } : c,
+        ),
+      );
+    }
+  };
+
+  const copy = async (text?: string) => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast("Copied to clipboard", "success");
+    } catch {
+      showToast("Failed to copy", "destructive");
+    }
+  };
+
+  return (
+    <div className="min-h-dvh w-full p-6 md:p-10">
+      <div className="mx-auto max-w-6xl grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Left: Inputs */}
+        <section className="space-y-4">
+          <h1 className="text-xl font-semibold">Image → Markdown OCR</h1>
+          <section
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={onDrop}
+            aria-label="File dropzone"
+            className="border-2 border-dashed rounded-md p-6 text-sm text-muted-foreground hover:bg-accent/30 transition-colors"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
+            Drag & drop JPEG/PNG here, or
+            <div className="mt-2 flex items-center gap-2">
+              <Input
+                ref={inputRef}
+                type="file"
+                accept="image/jpeg,image/png"
+                multiple
+                onChange={(e) => onPickFiles(e.currentTarget.files)}
+              />
+              <Button
+                variant="outline"
+                onClick={() => inputRef.current?.click()}
+              >
+                Browse
+              </Button>
+            </div>
+          </section>
+
+          {files.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-medium">Selected files</div>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="opacity-70">View:</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setFileView(fileView === "list" ? "compact" : "list")
+                    }
+                  >
+                    {fileView === "list" ? "Compact" : "List"}
+                  </Button>
+                </div>
+              </div>
+              {fileView === "list" ? (
+                <div className="space-y-2">
+                  {files.map((item, idx) => (
+                    <div
+                      key={`${item.file.name}-${item.file.size}-${item.file.lastModified}-${idx}`}
+                      className="flex items-center gap-3"
+                    >
+                      <div className="text-sm text-muted-foreground truncate">
+                        {item.file.name}{" "}
+                        <span className="opacity-60">
+                          ({Math.round(item.file.size / 1024)} KB)
+                        </span>
+                      </div>
+                      <Button variant="ghost" onClick={() => removeFile(idx)}>
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {files.map((item, idx) => (
+                    <div
+                      key={`${item.file.name}-${item.file.size}-${item.file.lastModified}-${idx}`}
+                      className="border rounded px-2 py-1 text-xs flex items-center gap-2"
+                    >
+                      <span className="max-w-40 truncate">
+                        {item.file.name}
+                      </span>
+                      <button
+                        type="button"
+                        className="opacity-70 hover:opacity-100"
+                        onClick={() => removeFile(idx)}
+                        aria-label="Remove"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium" htmlFor="prompt">
+                Prompt
+              </label>
+              <Button variant="ghost" onClick={resetPromptToDefault}>
+                Reset to default
+              </Button>
+            </div>
+            <Textarea
+              rows={12}
+              id="prompt"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
             />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Button onClick={submit} disabled={!canSubmit}>
+              Submit
+            </Button>
+          </div>
+        </section>
+
+        {/* Right: Cards */}
+        <section className="space-y-4">
+          <h2 className="text-lg font-semibold">Requests</h2>
+          <div className="space-y-3">
+            {cards.length === 0 && (
+              <div className="text-sm text-muted-foreground">
+                No requests yet.
+              </div>
+            )}
+            {cards.map((card) => (
+              <div key={card.id} className="rounded-md border p-3 space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <div className="font-medium">
+                    {new Date(card.createdAt).toLocaleString()}
+                  </div>
+                  <div className="text-xs uppercase tracking-wide opacity-70">
+                    {card.status}
+                  </div>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {card.files.length} file(s)
+                </div>
+                {card.status === "failed" && (
+                  <div className="text-sm text-destructive">{card.error}</div>
+                )}
+                {card.resultMarkdown && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="opacity-70">View:</span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          setRawViewById((m) => ({
+                            ...m,
+                            [card.id]: !m[card.id],
+                          }))
+                        }
+                      >
+                        {rawViewById[card.id] ? "Preview" : "Raw"}
+                      </Button>
+                    </div>
+                    {rawViewById[card.id] ? (
+                      <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-sm bg-accent/30 p-2 rounded">
+                        {card.resultMarkdown}
+                      </pre>
+                    ) : (
+                      <div className="max-h-64 overflow-auto text-sm border rounded p-2">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {card.resultMarkdown}
+                        </ReactMarkdown>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => copy(card.resultMarkdown)}
+                    disabled={!card.resultMarkdown}
+                  >
+                    Copy
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setExpandedId(card.id)}
+                    disabled={!card.resultMarkdown}
+                  >
+                    Expand
+                  </Button>
+                  <Button variant="ghost" onClick={() => retry(card)}>
+                    Retry
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      {/* Simple Modal */}
+      {expandedId &&
+        (() => {
+          const eid = expandedId as string;
+          return (
+            <button
+              type="button"
+              className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+              onClick={() => setExpandedId(null)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape" || e.key === "Enter")
+                  setExpandedId(null);
+              }}
+            >
+              <div
+                className="bg-background rounded-md border shadow-xl max-w-3xl w-full max-h-[80vh] overflow-hidden"
+                role="dialog"
+                aria-modal="true"
+                tabIndex={-1}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between border-b px-4 py-2">
+                  <div className="font-medium text-sm">Result</div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        copy(cards.find((c) => c.id === eid)?.resultMarkdown)
+                      }
+                    >
+                      Copy
+                    </Button>
+                    <Button size="sm" onClick={() => setExpandedId(null)}>
+                      Close
+                    </Button>
+                  </div>
+                </div>
+                <div className="p-4 overflow-auto max-h-[70vh] space-y-2">
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="opacity-70">View:</span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        setRawViewById((m) => ({
+                          ...m,
+                          [eid]: !m[eid],
+                        }))
+                      }
+                    >
+                      {rawViewById[eid] ? "Preview" : "Raw"}
+                    </Button>
+                  </div>
+                  {rawViewById[eid] ? (
+                    <pre className="whitespace-pre-wrap text-sm">
+                      {cards.find((c) => c.id === eid)?.resultMarkdown}
+                    </pre>
+                  ) : (
+                    <div className="text-sm">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {cards.find((c) => c.id === eid)?.resultMarkdown || ""}
+                      </ReactMarkdown>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </button>
+          );
+        })()}
+
+      {/* Toasts */}
+      <div className="fixed right-4 top-4 z-50 space-y-2">
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            className={
+              "rounded-md border px-3 py-2 text-sm shadow-md " +
+              (t.variant === "success"
+                ? "bg-emerald-600/10 border-emerald-600/30 text-emerald-800 dark:text-emerald-200"
+                : t.variant === "warning"
+                  ? "bg-amber-600/10 border-amber-600/30 text-amber-800 dark:text-amber-200"
+                  : t.variant === "destructive"
+                    ? "bg-red-600/10 border-red-600/30 text-red-800 dark:text-red-200"
+                    : "bg-accent/40 border-accent")
+            }
           >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+            {t.msg}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
