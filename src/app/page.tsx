@@ -4,6 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -21,6 +27,12 @@ type Card = {
   resultMarkdown?: string;
   error?: string;
   createdAt: number;
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+    reasoningTokens?: number;
+  };
 };
 
 const DEFAULT_PROMPT = `Extract all text from the provided sources, in the numerical order of the sources.
@@ -50,7 +62,7 @@ export default function Home() {
       variant?: "success" | "warning" | "destructive";
     }[]
   >([]);
-  const [fileView, setFileView] = useState<"list" | "compact">("list");
+  const [fileView, setFileView] = useState<"list" | "compact">("compact");
   const [rawViewById, setRawViewById] = useState<Record<string, boolean>>({});
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -89,6 +101,17 @@ export default function Home() {
 
   const removeFile = (idx: number) => {
     setFiles((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const clearAllFiles = () => {
+    // Revoke any object URLs to avoid memory leaks
+    try {
+      files.forEach((f) => {
+        if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
+      });
+    } catch {}
+    setFiles([]);
+    if (inputRef.current) inputRef.current.value = "";
   };
 
   const resetPromptToDefault = () => setPrompt(DEFAULT_PROMPT);
@@ -136,30 +159,122 @@ export default function Home() {
     try {
       const res = await fetch("/api/ocr", { method: "POST", body: form });
       if (!res.ok || !res.body) throw new Error("Request failed");
+
+      // Parse AI SDK Data Stream Protocol (SSE with JSON payloads)
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let done = false;
+      let buffer = "";
       let gotData = false;
+      let done = false;
+
+      type Usage = {
+        inputTokens?: number;
+        outputTokens?: number;
+        totalTokens?: number;
+        reasoningTokens?: number;
+      };
+      type StreamEvent =
+        | { type: "text-delta"; textDelta?: string; delta?: string }
+        | { type: "finish"; totalUsage?: Usage }
+        | { type: "message-metadata"; metadata?: { totalUsage?: Usage } }
+        | { type: "error"; error?: unknown }
+        | { type: string };
+
+      const handleEvent = (evt: StreamEvent) => {
+        if (!evt || typeof evt !== "object") return;
+        switch (evt.type) {
+          case "text-delta": {
+            const delta: string = evt.textDelta ?? evt.delta ?? "";
+            if (delta) {
+              gotData = true;
+              setCards((prev) =>
+                prev.map((c) =>
+                  c.id === id
+                    ? {
+                        ...c,
+                        resultMarkdown: (c.resultMarkdown || "") + delta,
+                      }
+                    : c,
+                ),
+              );
+            }
+            break;
+          }
+          case "finish": {
+            const totalUsage = (evt as { totalUsage?: Usage }).totalUsage;
+            setCards((prev) =>
+              prev.map((c) =>
+                c.id === id
+                  ? { ...c, status: "complete", usage: totalUsage }
+                  : c,
+              ),
+            );
+            break;
+          }
+          case "message-metadata": {
+            const totalUsage = (evt as { metadata?: { totalUsage?: Usage } })
+              .metadata?.totalUsage;
+            if (totalUsage) {
+              setCards((prev) =>
+                prev.map((c) =>
+                  c.id === id ? { ...c, usage: totalUsage } : c,
+                ),
+              );
+            }
+            break;
+          }
+          case "error": {
+            const message =
+              typeof (evt as { error?: unknown }).error === "string"
+                ? (evt as { error?: string }).error
+                : (evt as { error?: { message?: string } }).error?.message ||
+                  "Unknown error";
+            setCards((prev) =>
+              prev.map((c) =>
+                c.id === id ? { ...c, status: "failed", error: message } : c,
+              ),
+            );
+            showToast(`Failed: ${message}`, "destructive");
+            break;
+          }
+          default:
+            break;
+        }
+      };
+
       while (!done) {
         const { value, done: d } = await reader.read();
         done = d;
         if (value) {
-          const chunk = decoder.decode(value, { stream: !done });
-          setCards((prev) =>
-            prev.map((c) =>
-              c.id === id
-                ? { ...c, resultMarkdown: (c.resultMarkdown || "") + chunk }
-                : c,
-            ),
-          );
-          if (value.length > 0) gotData = true;
+          buffer += decoder
+            .decode(value, { stream: !done })
+            .replace(/\r\n/g, "\n");
+          // SSE events are separated by double newlines
+          let sepIndex = buffer.indexOf("\n\n");
+          while (sepIndex !== -1) {
+            const rawEvent = buffer.slice(0, sepIndex);
+            buffer = buffer.slice(sepIndex + 2);
+            sepIndex = buffer.indexOf("\n\n");
+
+            // Each event may contain multiple lines; we care about `data:`
+            const lines = rawEvent.split("\n");
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed.startsWith("data:")) continue;
+              const jsonStr = trimmed.slice(5).trim();
+              if (!jsonStr || jsonStr === "[DONE]") continue;
+              try {
+                const evt = JSON.parse(jsonStr);
+                handleEvent(evt);
+              } catch {
+                // ignore parse errors for non-JSON data lines
+              }
+            }
+          }
         }
       }
-      if (gotData) {
-        setCards((prev) =>
-          prev.map((c) => (c.id === id ? { ...c, status: "complete" } : c)),
-        );
-      } else {
+
+      if (!gotData) {
         setCards((prev) =>
           prev.map((c) =>
             c.id === id
@@ -206,30 +321,101 @@ export default function Home() {
     try {
       const res = await fetch("/api/ocr", { method: "POST", body: form });
       if (!res.ok || !res.body) throw new Error("Request failed");
+
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let done = false;
+      let buffer = "";
       let gotData = false;
+      let done = false;
+
+      type Usage = {
+        inputTokens?: number;
+        outputTokens?: number;
+        totalTokens?: number;
+        reasoningTokens?: number;
+      };
+      type StreamEvent =
+        | { type: "text-delta"; textDelta?: string; delta?: string }
+        | { type: "finish"; totalUsage?: Usage }
+        | { type: "error"; error?: unknown }
+        | { type: string };
+
+      const handleEvent = (evt: StreamEvent) => {
+        if (!evt || typeof evt !== "object") return;
+        switch (evt.type) {
+          case "text-delta": {
+            const delta: string = evt.textDelta ?? evt.delta ?? "";
+            if (delta) {
+              gotData = true;
+              setCards((prev) =>
+                prev.map((c) =>
+                  c.id === id
+                    ? {
+                        ...c,
+                        resultMarkdown: (c.resultMarkdown || "") + delta,
+                      }
+                    : c,
+                ),
+              );
+            }
+            break;
+          }
+          case "finish": {
+            const totalUsage = (evt as { totalUsage?: Usage }).totalUsage;
+            setCards((prev) =>
+              prev.map((c) =>
+                c.id === id
+                  ? { ...c, status: "complete", usage: totalUsage }
+                  : c,
+              ),
+            );
+            break;
+          }
+          case "error": {
+            const message =
+              typeof (evt as { error?: unknown }).error === "string"
+                ? (evt as { error?: string }).error
+                : (evt as { errorText?: string }).errorText ||
+                  (evt as { error?: { message?: string } }).error?.message ||
+                  "Unknown error";
+            setCards((prev) =>
+              prev.map((c) =>
+                c.id === id ? { ...c, status: "failed", error: message } : c,
+              ),
+            );
+            break;
+          }
+          default:
+            break;
+        }
+      };
+
       while (!done) {
         const { value, done: d } = await reader.read();
         done = d;
         if (value) {
-          const chunk = decoder.decode(value, { stream: !done });
-          setCards((prev) =>
-            prev.map((c) =>
-              c.id === id
-                ? { ...c, resultMarkdown: (c.resultMarkdown || "") + chunk }
-                : c,
-            ),
-          );
-          if (value.length > 0) gotData = true;
+          buffer += decoder.decode(value, { stream: !done });
+          let sepIndex = buffer.indexOf("\n\n");
+          while (sepIndex !== -1) {
+            const rawEvent = buffer.slice(0, sepIndex);
+            buffer = buffer.slice(sepIndex + 2);
+            sepIndex = buffer.indexOf("\n\n");
+            const lines = rawEvent.split("\n");
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed.startsWith("data:")) continue;
+              const jsonStr = trimmed.slice(5).trim();
+              if (!jsonStr || jsonStr === "[DONE]") continue;
+              try {
+                const evt = JSON.parse(jsonStr);
+                handleEvent(evt);
+              } catch {}
+            }
+          }
         }
       }
-      if (gotData) {
-        setCards((prev) =>
-          prev.map((c) => (c.id === id ? { ...c, status: "complete" } : c)),
-        );
-      } else {
+
+      if (!gotData) {
         setCards((prev) =>
           prev.map((c) =>
             c.id === id
@@ -258,6 +444,9 @@ export default function Home() {
       showToast("Failed to copy", "destructive");
     }
   };
+
+  // Derived for dialog usage without non-null assertions
+  const eid = expandedId ?? "";
 
   return (
     <div className="min-h-dvh w-full p-6 md:p-10">
@@ -303,6 +492,13 @@ export default function Home() {
                     }
                   >
                     {fileView === "list" ? "Compact" : "List"}
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={clearAllFiles}
+                  >
+                    Clear all
                   </Button>
                 </div>
               </div>
@@ -385,12 +581,29 @@ export default function Home() {
             )}
             {cards.map((card) => (
               <div key={card.id} className="rounded-md border p-3 space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <div className="font-medium">
+                <div className="flex items-center justify-between gap-2 text-sm">
+                  <div className="font-medium truncate">
                     {new Date(card.createdAt).toLocaleString()}
                   </div>
-                  <div className="text-xs uppercase tracking-wide opacity-70">
-                    {card.status}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span
+                      className="inline-flex items-center rounded border px-2 py-0.5 text-[11px] leading-none text-muted-foreground"
+                      title={
+                        card.usage
+                          ? `Input: ${card.usage.inputTokens ?? "?"} • Output: ${card.usage.outputTokens ?? "?"} • Total: ${card.usage.totalTokens ?? "?"}`
+                          : card.status === "complete"
+                            ? "Provider did not return usage"
+                            : "Token usage available on finish"
+                      }
+                    >
+                      Tokens:{" "}
+                      {card.usage?.outputTokens ??
+                        card.usage?.totalTokens ??
+                        (card.status === "complete" ? "—" : "…")}
+                    </span>
+                    <div className="text-xs uppercase tracking-wide opacity-70">
+                      {card.status}
+                    </div>
                   </div>
                 </div>
                 <div className="text-xs text-muted-foreground">
@@ -454,77 +667,66 @@ export default function Home() {
         </section>
       </div>
 
-      {/* Simple Modal */}
-      {expandedId &&
-        (() => {
-          const eid = expandedId as string;
-          return (
-            <button
-              type="button"
-              className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
-              onClick={() => setExpandedId(null)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape" || e.key === "Enter")
-                  setExpandedId(null);
-              }}
-            >
-              <div
-                className="bg-background rounded-md border shadow-xl max-w-3xl w-full max-h-[80vh] overflow-hidden"
-                role="dialog"
-                aria-modal="true"
-                tabIndex={-1}
-                onClick={(e) => e.stopPropagation()}
-                onKeyDown={(e) => e.stopPropagation()}
-              >
-                <div className="flex items-center justify-between border-b px-4 py-2">
-                  <div className="font-medium text-sm">Result</div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        copy(cards.find((c) => c.id === eid)?.resultMarkdown)
-                      }
-                    >
-                      Copy
-                    </Button>
-                    <Button size="sm" onClick={() => setExpandedId(null)}>
-                      Close
-                    </Button>
-                  </div>
-                </div>
-                <div className="p-4 overflow-auto max-h-[70vh] space-y-2">
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="opacity-70">View:</span>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        setRawViewById((m) => ({
-                          ...m,
-                          [eid]: !m[eid],
-                        }))
-                      }
-                    >
-                      {rawViewById[eid] ? "Preview" : "Raw"}
-                    </Button>
-                  </div>
-                  {rawViewById[eid] ? (
-                    <pre className="whitespace-pre-wrap text-sm">
-                      {cards.find((c) => c.id === eid)?.resultMarkdown}
-                    </pre>
-                  ) : (
-                    <div className="text-sm">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {cards.find((c) => c.id === eid)?.resultMarkdown || ""}
-                      </ReactMarkdown>
-                    </div>
-                  )}
-                </div>
+      {/* Result Dialog */}
+      <Dialog
+        open={Boolean(expandedId)}
+        onOpenChange={(open) => {
+          if (!open) setExpandedId(null);
+        }}
+      >
+        {expandedId ? (
+          <DialogContent
+            showCloseButton={false}
+            className="max-w-3xl w-full max-h-[80vh] p-0"
+          >
+            <div className="flex items-center justify-between border-b px-4 py-2">
+              <DialogTitle className="text-sm">Result</DialogTitle>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    copy(cards.find((c) => c.id === eid)?.resultMarkdown)
+                  }
+                >
+                  Copy
+                </Button>
+                <DialogClose asChild>
+                  <Button size="sm">Close</Button>
+                </DialogClose>
               </div>
-            </button>
-          );
-        })()}
+            </div>
+            <div className="p-4 overflow-auto max-h-[70vh] space-y-2">
+              <div className="flex items-center gap-2 text-xs">
+                <span className="opacity-70">View:</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    setRawViewById((m) => ({
+                      ...m,
+                      [eid]: !m[eid],
+                    }))
+                  }
+                >
+                  {rawViewById[eid] ? "Preview" : "Raw"}
+                </Button>
+              </div>
+              {rawViewById[eid] ? (
+                <pre className="whitespace-pre-wrap text-sm">
+                  {cards.find((c) => c.id === eid)?.resultMarkdown}
+                </pre>
+              ) : (
+                <div className="text-sm">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {cards.find((c) => c.id === eid)?.resultMarkdown || ""}
+                  </ReactMarkdown>
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        ) : null}
+      </Dialog>
 
       {/* Toasts */}
       <div className="fixed right-4 top-4 z-50 space-y-2">
