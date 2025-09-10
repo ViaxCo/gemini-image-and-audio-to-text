@@ -100,7 +100,7 @@ export function FilePicker(props: {
             <div className="text-sm font-medium">Selected files</div>
             <div className="flex items-center flex-wrap gap-2 text-xs">
               <Button
-                variant="destructive"
+                variant="outline"
                 size="sm"
                 onClick={() => {
                   props.clearAllFiles();

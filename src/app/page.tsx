@@ -115,6 +115,12 @@ export default function Home() {
 
   const resetPromptToDefault = () => setPrompt(DEFAULT_PROMPT);
 
+  const clearAllRequests = () => {
+    setCards([]);
+    setExpandedId(null);
+    setRawViewById({});
+  };
+
   const showToast = (
     msg: string,
     variant?: "success" | "warning" | "destructive",
@@ -321,7 +327,19 @@ export default function Home() {
 
         {/* Right: Cards */}
         <section className="space-y-4">
-          <h2 className="text-lg font-semibold">Requests</h2>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-lg font-semibold">Requests</h2>
+            {cards.length > 0 ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={clearAllRequests}
+                aria-label="Clear all requests"
+              >
+                Clear all
+              </Button>
+            ) : null}
+          </div>
           <div className="space-y-3">
             {cards.length === 0 && (
               <div className="text-sm text-muted-foreground">
