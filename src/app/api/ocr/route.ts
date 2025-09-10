@@ -35,8 +35,31 @@ export async function POST(req: Request) {
       messages: [{ role: "user", content }],
     });
 
-    // Stream plain text back to client; client assembles as markdown
-    return result.toTextStreamResponse();
+    // Use AI SDK data stream so client can read usage (token counts)
+    // Also emit message-level metadata with usage for broader compatibility.
+    return result.toUIMessageStreamResponse({
+      messageMetadata: ({ part }) => {
+        if (part.type === "finish") {
+          // Prefer normalized totalUsage; fall back to Google provider's usageMetadata
+          const googleMeta = (
+            part as unknown as {
+              response?: {
+                providerMetadata?: { google?: { usageMetadata?: unknown } };
+              };
+            }
+          )?.response?.providerMetadata?.google;
+          const usageFromProvider = googleMeta?.usageMetadata;
+          const fallback = usageFromProvider
+            ? {
+                inputTokens: usageFromProvider.promptTokenCount,
+                outputTokens: usageFromProvider.candidatesTokenCount,
+                totalTokens: usageFromProvider.totalTokenCount,
+              }
+            : undefined;
+          return { totalUsage: part.totalUsage ?? fallback } as unknown;
+        }
+      },
+    });
   } catch (err: unknown) {
     const message =
       err instanceof Error ? err.message : "Unexpected server error";
