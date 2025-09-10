@@ -51,7 +51,7 @@ export function RequestCard(props: {
     card.usage?.totalTokens ??
     card.usageTotal ??
     (card.usage?.inputTokens !== undefined &&
-      card.usage?.outputTokens !== undefined
+    card.usage?.outputTokens !== undefined
       ? card.usage.inputTokens + card.usage.outputTokens
       : undefined) ??
     card.usage?.outputTokens ??
@@ -112,7 +112,7 @@ export function RequestCard(props: {
                     card.usage?.totalTokens ??
                     card.usageTotal ??
                     (card.usage?.inputTokens !== undefined &&
-                      card.usage?.outputTokens !== undefined
+                    card.usage?.outputTokens !== undefined
                       ? card.usage.inputTokens + card.usage.outputTokens
                       : undefined);
                   return fmt(total);
