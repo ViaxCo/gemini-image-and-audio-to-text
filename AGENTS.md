@@ -7,7 +7,7 @@
 - Every change you make to the UI in the codebase should be mobile first responsive.
 - Use context7 to look up documentation for every package you interact with.
 - Only commit when explicitly requested
-- Always run `npm run lint` to ensure everything is working and formatted correctly
+- Always run `npm run format` to ensure everything is working and formatted correctly
 
 ---
 
