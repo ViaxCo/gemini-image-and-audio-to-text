@@ -313,7 +313,7 @@ export default function Home() {
           />
 
           <div className="flex items-center gap-3">
-            <Button onClick={submit} disabled={!canSubmit}>
+            <Button variant="secondary" onClick={submit} disabled={!canSubmit}>
               Submit
             </Button>
           </div>
