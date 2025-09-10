@@ -15,8 +15,6 @@ export function FilePicker(props: {
   onDrop: React.DragEventHandler<HTMLDivElement>;
   removeFile: (idx: number) => void;
   clearAllFiles: () => void;
-  fileView: "list" | "compact";
-  setFileView: (v: "list" | "compact") => void;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -46,21 +44,9 @@ export function FilePicker(props: {
 
       {props.files.length > 0 && (
         <div className="space-y-2">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-6">
             <div className="text-sm font-medium">Selected files</div>
-            <div className="flex items-center gap-2 text-xs">
-              <span className="opacity-70">View:</span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  props.setFileView(
-                    props.fileView === "list" ? "compact" : "list",
-                  )
-                }
-              >
-                {props.fileView === "list" ? "Compact" : "List"}
-              </Button>
+            <div className="flex items-center flex-wrap gap-2 text-xs">
               <Button
                 variant="destructive"
                 size="sm"
@@ -70,45 +56,25 @@ export function FilePicker(props: {
               </Button>
             </div>
           </div>
-          {props.fileView === "list" ? (
-            <div className="space-y-2">
-              {props.files.map((item, idx) => (
-                <div
-                  key={`${item.file.name}-${item.file.size}-${item.file.lastModified}-${idx}`}
-                  className="flex items-center gap-3"
+          {/* Always render compact view */}
+          <div className="flex flex-wrap gap-2">
+            {props.files.map((item, idx) => (
+              <div
+                key={`${item.file.name}-${item.file.size}-${item.file.lastModified}-${idx}`}
+                className="border rounded px-2 py-1 text-xs flex items-center gap-2"
+              >
+                <span className="max-w-40 truncate">{item.file.name}</span>
+                <button
+                  type="button"
+                  className="opacity-70 hover:opacity-100"
+                  onClick={() => props.removeFile(idx)}
+                  aria-label="Remove"
                 >
-                  <div className="text-sm text-muted-foreground truncate">
-                    {item.file.name}{" "}
-                    <span className="opacity-60">
-                      ({Math.round(item.file.size / 1024)} KB)
-                    </span>
-                  </div>
-                  <Button variant="ghost" onClick={() => props.removeFile(idx)}>
-                    Remove
-                  </Button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {props.files.map((item, idx) => (
-                <div
-                  key={`${item.file.name}-${item.file.size}-${item.file.lastModified}-${idx}`}
-                  className="border rounded px-2 py-1 text-xs flex items-center gap-2"
-                >
-                  <span className="max-w-40 truncate">{item.file.name}</span>
-                  <button
-                    type="button"
-                    className="opacity-70 hover:opacity-100"
-                    onClick={() => props.removeFile(idx)}
-                    aria-label="Remove"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </section>

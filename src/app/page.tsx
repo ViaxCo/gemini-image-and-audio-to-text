@@ -63,7 +63,6 @@ export default function Home() {
       variant?: "success" | "warning" | "destructive";
     }[]
   >([]);
-  const [fileView, setFileView] = useState<"list" | "compact">("compact");
   const [rawViewById, setRawViewById] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -109,7 +108,7 @@ export default function Home() {
       files.forEach((f) => {
         if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
       });
-    } catch { }
+    } catch {}
     setFiles([]);
     // input reset handled within FilePicker
   };
@@ -293,8 +292,6 @@ export default function Home() {
             onDrop={onDrop}
             removeFile={removeFile}
             clearAllFiles={clearAllFiles}
-            fileView={fileView}
-            setFileView={setFileView}
           />
 
           <PromptEditor
