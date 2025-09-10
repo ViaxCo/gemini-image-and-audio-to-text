@@ -66,7 +66,7 @@ export function RequestCard(props: {
   return (
     <UICard>
       <CardHeader className="border-b pb-3">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-sm font-medium truncate">
             {new Date(card.createdAt).toLocaleString()}
           </CardTitle>
