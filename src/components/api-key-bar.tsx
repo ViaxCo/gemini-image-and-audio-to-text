@@ -157,7 +157,7 @@ export function ApiKeyBar({
           className="text-primary underline underline-offset-2"
           title="Open Google AI Studio in a new tab"
         >
-          Get an API key
+          Get a free API key
         </a>
       </div>
     </div>
