@@ -7,7 +7,7 @@
 - Every UI change must be mobile‑first and responsive.
 - Use Context7 to look up documentation for every package you interact with.
 - Only commit when explicitly requested.
-- Always run `npm lint` and `npm run format` after changes.
+- Always run `npm run pretest` after changes.
 - Never start the dev server.
 
 ---

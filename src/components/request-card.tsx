@@ -2,6 +2,7 @@
 import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { DownloadMenu } from "@/components/download-menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -49,7 +50,9 @@ export function RequestCard(props: {
   const { card } = props;
   const [filesOpen, setFilesOpen] = React.useState(false);
   const tokensTitle = card.usage
-    ? `Input: ${card.usage.inputTokens ?? "?"} • Output: ${card.usage.outputTokens ?? "?"} • Total: ${card.usage.totalTokens ?? "?"}`
+    ? `Input: ${card.usage.inputTokens ?? "?"} • Output: ${
+        card.usage.outputTokens ?? "?"
+      } • Total: ${card.usage.totalTokens ?? "?"}`
     : card.status === "complete"
       ? "Provider did not return usage"
       : "Token usage available on finish";
@@ -72,20 +75,6 @@ export function RequestCard(props: {
     typeof tokensDisplay === "number"
       ? tokensDisplay.toLocaleString()
       : tokensDisplay;
-
-  const downloadMarkdown = () => {
-    if (!card.resultMarkdown) return;
-    const blob = new Blob([card.resultMarkdown], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const base = (card.files?.[0]?.name || "ocr").replace(/\.[^/.]+$/, "");
-    a.href = url;
-    a.download = `${base || "ocr"}.md`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  };
 
   return (
     <UICard>
@@ -269,13 +258,11 @@ export function RequestCard(props: {
           >
             Copy
           </Button>
-          <Button
+          <DownloadMenu
+            markdown={card.resultMarkdown}
+            suggestedBaseName={card.files?.[0]?.name}
             variant="outline"
-            onClick={downloadMarkdown}
-            disabled={!card.resultMarkdown}
-          >
-            Download
-          </Button>
+          />
           <Button
             variant="outline"
             onClick={() => props.onExpand(card.id)}

@@ -14,7 +14,7 @@ export type FileItem = {
 export function FilePicker(props: {
   files: FileItem[];
   onPickFiles: (files: FileList | null) => void;
-  onDrop: React.DragEventHandler<HTMLDivElement>;
+  onDrop: React.DragEventHandler<HTMLElement>;
   removeFile: (idx: number) => void;
   clearAllFiles: () => void;
 }) {

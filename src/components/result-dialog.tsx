@@ -2,6 +2,7 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { DownloadMenu } from "@/components/download-menu";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -19,19 +20,6 @@ export function ResultDialog(props: {
   onCopy: (text?: string) => void;
   files?: { name: string }[];
 }) {
-  const downloadMarkdown = () => {
-    if (!props.markdown) return;
-    const blob = new Blob([props.markdown], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const base = (props.files?.[0]?.name || "ocr").replace(/\.[^/.]+$/, "");
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${base || "ocr"}.md`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  };
   return (
     <Dialog open={Boolean(props.openId)} onOpenChange={props.onOpenChange}>
       {props.openId ? (
@@ -39,7 +27,7 @@ export function ResultDialog(props: {
           showCloseButton={false}
           className="max-w-3xl w-full max-h-[80vh] p-0"
         >
-          <div className="flex items-center justify-between border-b px-4 py-2">
+          <div className="flex flex-wrap gap-2 items-center justify-between border-b px-4 py-2">
             <DialogTitle className="text-sm">Result</DialogTitle>
             <div className="flex items-center gap-2">
               <Button
@@ -49,14 +37,12 @@ export function ResultDialog(props: {
               >
                 Copy
               </Button>
-              <Button
+              <DownloadMenu
+                markdown={props.markdown}
+                suggestedBaseName={props.files?.[0]?.name}
                 variant="outline"
                 size="sm"
-                onClick={downloadMarkdown}
-                disabled={!props.markdown}
-              >
-                Download
-              </Button>
+              />
               <DialogClose asChild>
                 <Button size="sm">Close</Button>
               </DialogClose>

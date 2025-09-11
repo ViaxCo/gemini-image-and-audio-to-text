@@ -104,7 +104,7 @@ export default function Home() {
     // input reset handled within FilePicker
   };
 
-  const onDrop: React.DragEventHandler<HTMLDivElement> = (e) => {
+  const onDrop: React.DragEventHandler<HTMLElement> = (e) => {
     e.preventDefault();
     onPickFiles(e.dataTransfer.files);
   };
