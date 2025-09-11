@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { type FileItem, FilePicker } from "@/components/file-picker";
 import { PromptEditor } from "@/components/prompt-editor";
 import {
@@ -65,6 +65,9 @@ export default function Home() {
   const [rawViewById, setRawViewById] = useState<Record<string, boolean>>({});
   const [hasApiKey, setHasApiKey] = useState<boolean>(false);
   const [hasDraftKey, setHasDraftKey] = useState<boolean>(false);
+  const controllersRef = useRef<Record<string, AbortController | undefined>>(
+    {},
+  );
 
   useEffect(() => {
     const saved = localStorage.getItem("ocr_default_prompt");
@@ -124,6 +127,11 @@ export default function Home() {
   const resetPromptToDefault = () => setPrompt(DEFAULT_PROMPT);
 
   const clearAllRequests = () => {
+    // Abort inflight streams then clear
+    try {
+      Object.values(controllersRef.current).forEach((c) => c?.abort());
+    } catch {}
+    controllersRef.current = {};
     setCards([]);
     setExpandedId(null);
     setRawViewById({});
@@ -225,10 +233,22 @@ export default function Home() {
       let gotError = false;
 
       const googleByok = createGoogleGenerativeAI({ apiKey });
+      // Create controller and store for cancel/clear-all
+      const controller = new AbortController();
+      controllersRef.current[id] = controller;
       let finished = false;
       const result = streamText({
         model: googleByok("gemini-2.5-flash"),
         messages: [{ role: "user", content }],
+        abortSignal: controller.signal,
+        onAbort: () => {
+          gotError = true;
+          setCards((prev) =>
+            prev.map((c) =>
+              c.id === id ? { ...c, status: "failed", error: "Canceled" } : c,
+            ),
+          );
+        },
         onFinish({ text, totalUsage, response }) {
           finished = true;
           // Prefer normalized totalUsage if available
@@ -311,6 +331,15 @@ export default function Home() {
             }
             break;
           }
+          case "abort": {
+            gotError = true;
+            setCards((prev) =>
+              prev.map((c) =>
+                c.id === id ? { ...c, status: "failed", error: "Canceled" } : c,
+              ),
+            );
+            break;
+          }
           case "text-delta": {
             const delta =
               (part as { text?: string; delta?: string; textDelta?: string })
@@ -372,6 +401,9 @@ export default function Home() {
       if (opts.showErrorToast) {
         showToast(`Failed: ${message}`, "destructive");
       }
+    } finally {
+      // Cleanup controller entry
+      delete controllersRef.current[id];
     }
   }
 
@@ -539,6 +571,11 @@ export default function Home() {
                 }
                 onCopy={copy}
                 onExpand={(id) => setExpandedId(id)}
+                onCancel={(id) => {
+                  try {
+                    controllersRef.current[id]?.abort();
+                  } catch {}
+                }}
                 onRetry={retry}
               />
             ))}

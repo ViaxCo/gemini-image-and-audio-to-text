@@ -43,6 +43,7 @@ export function RequestCard(props: {
   onToggleRaw: () => void;
   onCopy: (text?: string) => void;
   onExpand: (id: string) => void;
+  onCancel: (id: string) => void;
   onRetry: (card: Card) => void;
 }) {
   const { card } = props;
@@ -252,6 +253,15 @@ export function RequestCard(props: {
           </div>
         )}
         <div className="flex items-center flex-wrap gap-2 mt-3">
+          {card.status === "processing" ? (
+            <Button
+              variant="outline"
+              onClick={() => props.onCancel(card.id)}
+              aria-label="Cancel request"
+            >
+              Cancel
+            </Button>
+          ) : null}
           <Button
             variant="outline"
             onClick={() => props.onCopy(card.resultMarkdown)}
