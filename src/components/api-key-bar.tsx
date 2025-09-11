@@ -147,8 +147,8 @@ export function ApiKeyBar({
       {/* Privacy */}
       <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
         <span>
-          Saved in your browser. Requests go directly to Google; nothing is sent
-          to our server.
+          The API key is saved in your browser. Requests go directly to Google;
+          nothing is sent to our server.
         </span>
         <a
           href="https://aistudio.google.com/app/apikey"
