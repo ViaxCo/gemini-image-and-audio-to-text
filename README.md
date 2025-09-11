@@ -28,14 +28,11 @@ Install
 npm install
 ```
 
-Environment
+API Key (BYOK)
 
-1. Copy `.env.local.example` → `.env.local`
-2. Set your key:
-
-```ini
-GOOGLE_GENERATIVE_AI_API_KEY=your_api_key_here
-```
+- Open the app and enter your Gemini API key in the “Gemini API Key” bar.
+- The key is stored in your browser (`localStorage`) under `gemini_api_key` and never sent to any server.
+- Requests are made directly from your browser to Google Gemini.
 
 Run (dev)
 
@@ -73,13 +70,12 @@ npm run lint
 ## Architecture
 
 - UI entry: `src/app/page.tsx`
-  - File picker, prompt editor, and request cards.
-  - Parses AI SDK data stream (SSE `data:` lines) into text deltas and usage metadata.
-- API route: `POST /api/ocr` at `src/app/api/ocr/route.ts`
-  - Accepts `form-data` with `prompt` and `files[]` (JPEG/PNG).
-  - Streams response via `toUIMessageStreamResponse` and includes usage when available.
-  - Runtime: Node.js; `maxDuration = 60` for larger batches.
+  - File picker, prompt editor, API key bar, and request cards.
+  - Calls Gemini directly from the browser via AI SDK `streamText`; accumulates text deltas and normalizes usage metadata on finish.
+- No server proxy:
+  - Your key is used only in the browser.
 - Components: `src/components`
+  - `api-key-bar.tsx` stores/clears the key in `localStorage`.
   - `ui/` contains shadcn/ui primitives used by higher‑level components.
   - `theme-provider.tsx` and `theme-toggle.tsx` wire up dark mode.
 
@@ -94,23 +90,11 @@ npm run lint
 
 ---
 
-## API Reference
+## Notes
 
-Endpoint: `POST /api/ocr`
-
-Request (multipart/form‑data)
-
-- `prompt`: string
-- `files`: one or more images (`image/jpeg` or `image/png`)
-
-Response (event stream)
-
-- Server‑Sent Events with AI SDK Data Stream payloads: `text-delta`, `message-metadata`, `finish`, `error`.
-- Usage metadata surfaces when available (provider dependent) and is normalized on the client.
-
-Errors
-
-- `400` for missing files; `500` for unexpected errors. JSON body has `{ ok: false, error: string }`.
+- Supported images: JPEG/PNG up to ~10 MB each.
+- Token usage is displayed when provided by the provider; totals are computed from available fields.
+- For added safety, restrict your API key to your site origin in Google AI Studio and rotate keys periodically.
 
 ---
 

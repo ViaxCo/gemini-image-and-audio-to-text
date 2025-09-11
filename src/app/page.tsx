@@ -10,11 +10,10 @@ import {
 import { ResultDialog } from "@/components/result-dialog";
 import { Toasts } from "@/components/toasts";
 import { Button } from "@/components/ui/button";
-import {
-  computeUsageTotal,
-  readAiSdkStream,
-  type Usage as StreamUsage,
-} from "@/lib/ai-stream";
+import { computeUsageTotal, type Usage as StreamUsage } from "@/lib/ai-stream";
+import { ApiKeyBar } from "@/components/api-key-bar";
+import { streamText } from "ai";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 
 type Card = {
   id: string;
@@ -64,6 +63,8 @@ export default function Home() {
     }[]
   >([]);
   const [rawViewById, setRawViewById] = useState<Record<string, boolean>>({});
+  const [hasApiKey, setHasApiKey] = useState<boolean>(false);
+  const [hasDraftKey, setHasDraftKey] = useState<boolean>(false);
 
   useEffect(() => {
     const saved = localStorage.getItem("ocr_default_prompt");
@@ -72,6 +73,13 @@ export default function Home() {
   useEffect(() => {
     localStorage.setItem("ocr_default_prompt", prompt);
   }, [prompt]);
+
+  useEffect(() => {
+    try {
+      const k = localStorage.getItem("gemini_api_key");
+      setHasApiKey(!!(k && k.trim().length));
+    } catch {}
+  }, []);
 
   const onPickFiles = (picked: FileList | null) => {
     if (!picked) return;
@@ -133,7 +141,32 @@ export default function Home() {
     );
   };
 
-  const canSubmit = files.length > 0 && prompt.trim().length > 0;
+  const canSubmit = files.length > 0 && prompt.trim().length > 0 && hasApiKey;
+
+  function formatModelError(err: unknown): string {
+    // Based on AI SDK guidance: treat unknown, string, Error, or object
+    // and map common Gemini API key errors to a friendly message.
+    let msg = "Unknown error";
+    if (err == null) msg = "Unknown error";
+    else if (typeof err === "string") msg = err;
+    else if (err instanceof Error) msg = err.message || "Error";
+    else {
+      try {
+        msg = JSON.stringify(err);
+      } catch {
+        msg = String(err);
+      }
+    }
+    const lower = (msg || "").toLowerCase();
+    if (
+      lower.includes("api key not valid") ||
+      lower.includes("api_key_invalid") ||
+      lower.includes("invalid_argument")
+    ) {
+      return "Invalid API key. Open ‘Get an API key’, paste it, and press Save.";
+    }
+    return msg;
+  }
 
   // --- Small reused helpers (preserve exact behavior/messages) ---
   function buildFormData(p: string, fs: File[]): FormData {
@@ -167,49 +200,178 @@ export default function Home() {
     form: FormData,
     opts: { showErrorToast: boolean },
   ) {
-    const res = await fetch("/api/ocr", { method: "POST", body: form });
-    if (!res.ok || !res.body) throw new Error("Request failed");
+    try {
+      const apiKey = localStorage.getItem("gemini_api_key")?.trim() || "";
+      if (!apiKey) throw new Error("Missing API key");
 
-    const gotData = await readAiSdkStream(res.body, {
-      onTextDelta: (delta: string) => {
-        setCards((prev) =>
-          prev.map((c) =>
-            c.id === id
-              ? { ...c, resultMarkdown: (c.resultMarkdown || "") + delta }
-              : c,
-          ),
-        );
-      },
-      onUsage: (usage: StreamUsage | undefined) => {
-        if (!usage) return;
-        const computedTotal = computeUsageTotal(usage);
-        setCards((prev) =>
-          prev.map((c) =>
-            c.id === id
-              ? { ...c, status: "complete", usage, usageTotal: computedTotal }
-              : c,
-          ),
-        );
-      },
-      onError: (message: string) => {
-        setCards((prev) =>
-          prev.map((c) =>
-            c.id === id ? { ...c, status: "failed", error: message } : c,
-          ),
-        );
-        if (opts.showErrorToast) {
-          showToast(`Failed: ${message}`, "destructive");
+      const prompt = String(form.get("prompt") || "");
+      const files = form.getAll("files") as File[];
+      if (!files.length) throw new Error("No files provided");
+
+      type UserContent =
+        | { type: "text"; text: string }
+        | { type: "file"; data: Uint8Array; mediaType: string };
+
+      const content: UserContent[] = [{ type: "text", text: prompt }];
+      for (const f of files) {
+        content.push({
+          type: "file",
+          data: new Uint8Array(await f.arrayBuffer()),
+          mediaType: f.type || "image/jpeg",
+        });
+      }
+
+      let gotData = false;
+      let gotError = false;
+
+      const googleByok = createGoogleGenerativeAI({ apiKey });
+      let finished = false;
+      const result = streamText({
+        model: googleByok("gemini-2.5-flash"),
+        messages: [{ role: "user", content }],
+        onFinish({ text, totalUsage, response }) {
+          finished = true;
+          // Prefer normalized totalUsage if available
+          let usage: StreamUsage | undefined = totalUsage;
+          if (!usage && response) {
+            // Fallback: provider-specific usage from Google metadata
+            const googleMeta = (
+              response as unknown as {
+                providerMetadata?: { google?: { usageMetadata?: unknown } };
+              }
+            )?.providerMetadata?.google as
+              | { usageMetadata?: unknown }
+              | undefined;
+            const usageFromProvider = googleMeta?.usageMetadata as
+              | {
+                  promptTokenCount?: number;
+                  candidatesTokenCount?: number;
+                  totalTokenCount?: number;
+                  thoughtsTokenCount?: number;
+                }
+              | undefined;
+            if (usageFromProvider) {
+              usage = {
+                inputTokens: usageFromProvider.promptTokenCount,
+                outputTokens: usageFromProvider.candidatesTokenCount,
+                totalTokens: usageFromProvider.totalTokenCount,
+                reasoningTokens: usageFromProvider.thoughtsTokenCount,
+              };
+            }
+          }
+
+          // If nothing streamed but final text is present, append it now
+          if (!gotData && text) {
+            setCards((prev) =>
+              prev.map((c) =>
+                c.id === id
+                  ? { ...c, resultMarkdown: (c.resultMarkdown || "") + text }
+                  : c,
+              ),
+            );
+            gotData = true;
+          }
+
+          if (usage) {
+            const computedTotal = computeUsageTotal(usage);
+            setCards((prev) =>
+              prev.map((c) =>
+                c.id === id
+                  ? {
+                      ...c,
+                      status: "complete",
+                      usage,
+                      usageTotal: computedTotal,
+                    }
+                  : c,
+              ),
+            );
+          } else {
+            // Even if no usage, if we got text, mark complete
+            setCards((prev) =>
+              prev.map((c) => (c.id === id ? { ...c, status: "complete" } : c)),
+            );
+          }
+        },
+      });
+
+      for await (const part of result.fullStream as any) {
+        switch (part.type) {
+          case "text": {
+            const delta = (part as { text?: string }).text || "";
+            if (delta) {
+              gotData = true;
+              setCards((prev) =>
+                prev.map((c) =>
+                  c.id === id
+                    ? { ...c, resultMarkdown: (c.resultMarkdown || "") + delta }
+                    : c,
+                ),
+              );
+            }
+            break;
+          }
+          case "text-delta": {
+            const delta =
+              (part as { text?: string; delta?: string; textDelta?: string })
+                .text ||
+              (part as { text?: string; delta?: string; textDelta?: string })
+                .delta ||
+              (part as { text?: string; delta?: string; textDelta?: string })
+                .textDelta ||
+              "";
+            if (delta) {
+              gotData = true;
+              setCards((prev) =>
+                prev.map((c) =>
+                  c.id === id
+                    ? { ...c, resultMarkdown: (c.resultMarkdown || "") + delta }
+                    : c,
+                ),
+              );
+            }
+            break;
+          }
+          case "error": {
+            gotError = true;
+            const message = formatModelError(
+              (part as { error?: unknown }).error,
+            );
+            setCards((prev) =>
+              prev.map((c) =>
+                c.id === id ? { ...c, status: "failed", error: message } : c,
+              ),
+            );
+            if (opts.showErrorToast) {
+              showToast(`Failed: ${message}`, "destructive");
+            }
+            break;
+          }
+          default:
+            break;
         }
-      },
-    });
+      }
 
-    if (!gotData) {
+      if (!gotData && !gotError && !finished) {
+        setCards((prev) =>
+          prev.map((c) =>
+            c.id === id
+              ? { ...c, status: "failed", error: "Empty response" }
+              : c,
+          ),
+        );
+        showToast("Empty response from model", "destructive");
+      }
+    } catch (e: unknown) {
+      const message = formatModelError(e);
       setCards((prev) =>
         prev.map((c) =>
-          c.id === id ? { ...c, status: "failed", error: "Empty response" } : c,
+          c.id === id ? { ...c, status: "failed", error: message } : c,
         ),
       );
-      showToast("Empty response from server", "destructive");
+      if (opts.showErrorToast) {
+        showToast(`Failed: ${message}`, "destructive");
+      }
     }
   }
 
@@ -302,6 +464,16 @@ export default function Home() {
   return (
     <div className="min-h-dvh w-full p-6 md:p-10">
       <div className="mx-auto max-w-6xl grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="md:col-span-2">
+          <ApiKeyBar
+            onKeyChange={(p) => setHasApiKey(!!p)}
+            onStatusChange={({ savedPresent, draftPresent }) => {
+              setHasApiKey(!!savedPresent);
+              setHasDraftKey(!!draftPresent);
+            }}
+            onToast={(msg, variant) => showToast(msg, variant)}
+          />
+        </div>
         {/* Left: Inputs */}
         <section className="space-y-4">
           <FilePicker
@@ -319,7 +491,18 @@ export default function Home() {
           />
 
           <div className="flex items-center gap-3">
-            <Button variant="secondary" onClick={submit} disabled={!canSubmit}>
+            <Button
+              variant="secondary"
+              onClick={submit}
+              disabled={!canSubmit}
+              title={
+                hasApiKey
+                  ? undefined
+                  : hasDraftKey
+                    ? "Press Save in the API key bar to enable Submit"
+                    : "Add your Gemini API key to submit"
+              }
+            >
               Submit
             </Button>
           </div>
