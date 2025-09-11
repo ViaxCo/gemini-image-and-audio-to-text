@@ -24,7 +24,7 @@ export function FilePicker(props: {
   return (
     <section className="space-y-4">
       <h1 className="text-xl font-semibold">Image → Markdown OCR</h1>
-      <div
+      <section
         onDragEnter={(e) => {
           if (Array.from(e.dataTransfer?.types || []).includes("Files")) {
             setDragActive(true);
@@ -45,9 +45,9 @@ export function FilePicker(props: {
           try {
             if (inputRef.current) {
               const dt = new DataTransfer();
-              Array.from(e.dataTransfer.files || []).forEach((f) =>
-                dt.items.add(f),
-              );
+              Array.from(e.dataTransfer.files || []).forEach((f) => {
+                dt.items.add(f);
+              });
               (inputRef.current as unknown as { files: FileList }).files =
                 dt.files;
             }
@@ -92,7 +92,7 @@ export function FilePicker(props: {
             </span>
           </Label>
         </div>
-      </div>
+      </section>
 
       {props.files.length > 0 && (
         <div className="space-y-2">

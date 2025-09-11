@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { streamText } from "ai";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ApiKeyBar } from "@/components/api-key-bar";
 import { type FileItem, FilePicker } from "@/components/file-picker";
 import { PromptEditor } from "@/components/prompt-editor";
 import {
@@ -11,9 +14,6 @@ import { ResultDialog } from "@/components/result-dialog";
 import { Toasts } from "@/components/toasts";
 import { Button } from "@/components/ui/button";
 import { computeUsageTotal, type Usage as StreamUsage } from "@/lib/ai-stream";
-import { ApiKeyBar } from "@/components/api-key-bar";
-import { streamText } from "ai";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
 
 type Card = {
   id: string;
@@ -80,7 +80,7 @@ export default function Home() {
   useEffect(() => {
     try {
       const k = localStorage.getItem("gemini_api_key");
-      setHasApiKey(!!(k && k.trim().length));
+      setHasApiKey(!!k?.trim().length);
     } catch {}
   }, []);
 
@@ -129,7 +129,9 @@ export default function Home() {
   const clearAllRequests = () => {
     // Abort inflight streams then clear
     try {
-      Object.values(controllersRef.current).forEach((c) => c?.abort());
+      Object.values(controllersRef.current).forEach((c) => {
+        c?.abort();
+      });
     } catch {}
     controllersRef.current = {};
     setCards([]);
@@ -315,7 +317,19 @@ export default function Home() {
         },
       });
 
-      for await (const part of result.fullStream as any) {
+      type FullStreamPart =
+        | { type: "text"; text?: string }
+        | { type: "abort" }
+        | {
+            type: "text-delta";
+            text?: string;
+            delta?: string;
+            textDelta?: string;
+          }
+        | { type: "error"; error?: unknown }
+        | { type: string; [k: string]: unknown };
+
+      for await (const part of result.fullStream as AsyncIterable<FullStreamPart>) {
         switch (part.type) {
           case "text": {
             const delta = (part as { text?: string }).text || "";
@@ -498,11 +512,22 @@ export default function Home() {
       <div className="mx-auto max-w-6xl grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="md:col-span-2">
           <ApiKeyBar
-            onKeyChange={(p) => setHasApiKey(!!p)}
-            onStatusChange={({ savedPresent, draftPresent }) => {
-              setHasApiKey(!!savedPresent);
-              setHasDraftKey(!!draftPresent);
-            }}
+            onKeyChange={useCallback((p: boolean) => {
+              setHasApiKey(!!p);
+            }, [])}
+            onStatusChange={useCallback(
+              ({
+                savedPresent,
+                draftPresent,
+              }: {
+                savedPresent: boolean;
+                draftPresent: boolean;
+              }) => {
+                setHasApiKey(!!savedPresent);
+                setHasDraftKey(!!draftPresent);
+              },
+              [],
+            )}
             onToast={(msg, variant) => showToast(msg, variant)}
           />
         </div>

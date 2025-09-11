@@ -41,7 +41,7 @@ export function ApiKeyBar({
     } catch {
       // ignore
     }
-  }, []);
+  }, [onKeyChange, onStatusChange]);
 
   const save = () => {
     try {
@@ -75,7 +75,10 @@ export function ApiKeyBar({
 
   return (
     <div className={cn("rounded-md border p-3", className)}>
-      <label className="mb-1 block text-xs font-medium text-muted-foreground">
+      <label
+        htmlFor="gemini-api-key"
+        className="mb-1 block text-xs font-medium text-muted-foreground"
+      >
         Gemini API Key (stored locally)
       </label>
 
@@ -83,6 +86,7 @@ export function ApiKeyBar({
       <div className="flex flex-col gap-2 md:flex-row md:items-center">
         <div className="flex flex-1 items-center gap-2">
           <Input
+            id="gemini-api-key"
             type={masked ? "password" : "text"}
             placeholder="AIxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
             value={key}
