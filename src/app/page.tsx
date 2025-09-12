@@ -751,6 +751,11 @@ Format the text with:
         }}
         markdown={selectedCard?.resultMarkdown}
         files={selectedCard?.files}
+        audioFile={
+          selectedCard?.mode === "audio" && selectedCard.status === "complete"
+            ? (selectedCard?.filesBlob?.[0]?.file ?? null)
+            : null
+        }
         raw={!!(expandedId && rawViewById[expandedId])}
         onToggleRaw={() =>
           expandedId &&

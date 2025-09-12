@@ -2,6 +2,7 @@
 import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { AudioPlayer } from "@/components/audio-player";
 import { DownloadMenu } from "@/components/download-menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -130,12 +131,19 @@ export function RequestCard(props: {
               if (card.mode === "audio") {
                 const f = card.files[0];
                 return (
-                  <span
-                    title={f?.name}
-                    className="block max-w-full truncate text-sm text-foreground"
-                  >
-                    {f?.name ?? "(audio)"}
-                  </span>
+                  <div className="w-full">
+                    <span
+                      title={f?.name}
+                      className="block max-w-full truncate text-sm text-foreground"
+                    >
+                      {f?.name ?? "(audio)"}
+                    </span>
+                    {card.status === "complete" && card.filesBlob?.[0]?.file ? (
+                      <div className="mt-2">
+                        <AudioPlayer file={card.filesBlob[0].file} />
+                      </div>
+                    ) : null}
+                  </div>
                 );
               }
               if (card.files.length === 1)

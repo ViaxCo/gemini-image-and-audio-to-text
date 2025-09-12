@@ -2,6 +2,7 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { AudioPlayer } from "@/components/audio-player";
 import { DownloadMenu } from "@/components/download-menu";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +20,7 @@ export function ResultDialog(props: {
   onToggleRaw: () => void;
   onCopy: (text?: string) => void;
   files?: { name: string }[];
+  audioFile?: File | null;
 }) {
   return (
     <Dialog open={Boolean(props.openId)} onOpenChange={props.onOpenChange}>
@@ -48,7 +50,12 @@ export function ResultDialog(props: {
               </DialogClose>
             </div>
           </div>
-          <div className="p-4 overflow-auto max-h-[70vh] space-y-2">
+          <div className="p-4 overflow-auto max-h-[70vh] space-y-3">
+            {props.audioFile ? (
+              <div>
+                <AudioPlayer file={props.audioFile} />
+              </div>
+            ) : null}
             <div className="flex items-center gap-2 text-xs">
               <span className="opacity-70">View:</span>
               <Button size="sm" variant="outline" onClick={props.onToggleRaw}>

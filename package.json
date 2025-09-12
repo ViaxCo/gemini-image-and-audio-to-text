@@ -17,6 +17,7 @@
     "@m2d/list": "^0.0.8",
     "@m2d/table": "^0.0.7",
     "@radix-ui/react-dialog": "1.1.15",
+    "@radix-ui/react-slider": "^1.2.2",
     "@radix-ui/react-alert-dialog": "^1.1.6",
     "@radix-ui/react-toggle": "^1.1.2",
     "@radix-ui/react-toggle-group": "^1.1.3",
