@@ -40,7 +40,7 @@ This repo is a Next.js 15 (App Router) app that performs image → Markdown OCR 
 - `npm run build` — Production build.
 - `npm start` — Run the built app.
 - `npm run lint` — Biome linting and checks.
-- `npm run format` — Apply Biome formatting (run after any edits).
+- `npm run format` — Apply Biome formatting.
 
 ## Implementation Rules for Agents
 
@@ -95,5 +95,6 @@ This repo is a Next.js 15 (App Router) app that performs image → Markdown OCR 
 - [ ] shadcn/ui primitives or blocks only; MCP demo consulted
 - [ ] Mobile‑first responsive
 - [ ] No leaked secrets; server‑only API keys
-- [ ] Biome passes; formatted with `npm run format`
+- [ ] Pretest passes; formatted with `npm run pretest`
 - [ ] Accessible labels, roles, focus, and contrast
+- [ ] Code implementation is simple, easy to read and maintain. 
