@@ -166,7 +166,15 @@ export function RequestCard(props: {
                   +{card.files.length - 2} more
                 </summary>
                 <div id={`files-${card.id}`} className="mt-2">
-                  <ScrollArea className="max-h-28 rounded border">
+                  {/**
+                   * Ensure the expandable files list scrolls instead of
+                   * overflowing the card. Radix ScrollArea expects an explicit
+                   * height on the Root (not just max-height) so the Viewport
+                   * can size itself and enable overflow. Using `h-28` on
+                   * mobile and a bit taller on larger screens keeps it
+                   * responsive while preventing layout push-down.
+                   */}
+                  <ScrollArea className="h-28 sm:h-36 w-full overflow-hidden rounded border">
                     <div className="p-2 flex flex-wrap gap-1">
                       {card.files.map((f) => (
                         <Badge
