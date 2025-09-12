@@ -5,10 +5,21 @@ import { streamText } from "ai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiKeyBar } from "@/components/api-key-bar";
 import { type FileItem, FilePicker } from "@/components/file-picker";
+import { ModeToggle } from "@/components/mode-toggle";
 import { PromptEditor } from "@/components/prompt-editor";
 import { RequestCard } from "@/components/request-card";
 import { ResultDialog } from "@/components/result-dialog";
 import { Toasts } from "@/components/toasts";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useToasts } from "@/hooks/use-toasts";
 import { STORAGE_KEYS } from "@/lib/constants";
@@ -33,6 +44,39 @@ Example formatting:
 **Page 1**`;
 
 export default function Home() {
+  // Important: initialize with a static value for SSR parity. Load saved mode after mount.
+  const [mode, setMode] = useState<"image" | "audio">("image");
+
+  const DEFAULT_PROMPT_AUDIO = `Edit the source, correcting all typographical, grammatical, and spelling errors while maintaining the original style and emphasis.
+
+Ensure all biblical references:
+- Use exact KJV wording.
+- Are explicitly quoted in full including those referenced in passive.
+- Formatted in isolation with verse numbers, with the reference line in bold and verses in normal weight, e.g.:
+
+**Genesis 12:2-3 - KJV**
+2. And I will make of thee a great nation, and I will bless thee, and make thy name great; and thou shalt be a blessing:
+3. And I will bless them that bless thee, and curse him that curseth thee: and in thee shall all families of the earth be blessed.
+
+Correct all Hebrew and Greek words with proper transliterations.
+
+Remove all verbal fillers ("uh", "um", etc.) while preserving the complete content and meaning.
+
+Maintain all of the author's:
+- Teaching points
+- Rhetorical devices
+- Emphasis patterns
+- Illustrative examples
+- Call-and-response elements
+
+Format the text with:
+- Consistent punctuation
+- Proper capitalization
+- Original paragraph structure
+- Clear scripture demarcation
+- Smart quotes`;
+
+  // Initialize with image default for SSR parity; per-mode saved prompts are loaded after mount.
   const [prompt, setPrompt] = useState<string>(DEFAULT_PROMPT);
   const [files, setFiles] = useState<FileItem[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
@@ -41,17 +85,55 @@ export default function Home() {
   const [rawViewById, setRawViewById] = useState<Record<string, boolean>>({});
   const [hasApiKey, setHasApiKey] = useState<boolean>(false);
   const [hasDraftKey, setHasDraftKey] = useState<boolean>(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pendingMode, setPendingMode] = useState<"image" | "audio" | null>(
+    null,
+  );
   const controllersRef = useRef<Record<string, AbortController | undefined>>(
     {},
   );
 
+  // Load saved mode once after mount to avoid hydration mismatch
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.PROMPT_DEFAULT);
-    if (saved) setPrompt(saved);
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.PIPELINE_MODE);
+      if (saved === "image" || saved === "audio") setMode(saved);
+    } catch {}
   }, []);
+
+  // Persist pipeline mode and prompt per-mode
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.PROMPT_DEFAULT, prompt);
-  }, [prompt]);
+    try {
+      localStorage.setItem(STORAGE_KEYS.PIPELINE_MODE, mode);
+    } catch {}
+  }, [mode]);
+
+  useEffect(() => {
+    // On mode change, swap in the saved prompt for that mode or seed with defaults
+    try {
+      const key =
+        mode === "audio"
+          ? STORAGE_KEYS.PROMPT_AUDIO
+          : STORAGE_KEYS.PROMPT_DEFAULT;
+      const saved = localStorage.getItem(key);
+      setPrompt(
+        saved ?? (mode === "audio" ? DEFAULT_PROMPT_AUDIO : DEFAULT_PROMPT),
+      );
+    } catch {
+      setPrompt(mode === "audio" ? DEFAULT_PROMPT_AUDIO : DEFAULT_PROMPT);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
+  useEffect(() => {
+    try {
+      const key =
+        mode === "audio"
+          ? STORAGE_KEYS.PROMPT_AUDIO
+          : STORAGE_KEYS.PROMPT_DEFAULT;
+      localStorage.setItem(key, prompt);
+    } catch {}
+  }, [mode, prompt]);
 
   useEffect(() => {
     try {
@@ -63,20 +145,65 @@ export default function Home() {
   const onPickFiles = (picked: FileList | null) => {
     if (!picked) return;
     const all = Array.from(picked);
-    const accepted = all.filter(
-      (f) => /image\/(jpeg|jpg|png)/.test(f.type) && f.size <= 10 * 1024 * 1024,
-    );
-    const rejected = all.filter((f) => !accepted.includes(f));
-    const next: FileItem[] = accepted.map((f) => ({
-      file: f,
-      previewUrl: URL.createObjectURL(f),
-    }));
-    setFiles((prev) => [...prev, ...next]);
-    if (rejected.length)
-      addToast(
-        `${rejected.length} file(s) rejected (type or >10MB).`,
-        "warning",
+
+    if (mode === "audio") {
+      // accept audio/* or known extensions; cap 10; size <= 20MB
+      const allowedExt = new Set([
+        "mp3",
+        "m4a",
+        "wav",
+        "aac",
+        "ogg",
+        "flac",
+        "aiff",
+        "aif",
+      ]);
+      let filesToUse = all.filter((f) => {
+        const ext = f.name.split(".").pop()?.toLowerCase();
+        const okType =
+          f.type.startsWith("audio/") || (ext ? allowedExt.has(ext) : false);
+        const okSize = f.size <= 20 * 1024 * 1024;
+        if (!okType) return false;
+        if (!okSize) {
+          addToast(
+            "Audio over 20 MB isn’t supported inline. Trim/compress and retry.",
+            "warning",
+          );
+          return false;
+        }
+        return true;
+      });
+      if (filesToUse.length > 10) {
+        addToast("Only first 10 audio files kept.", "warning");
+        filesToUse = filesToUse.slice(0, 10);
+      }
+      const next: FileItem[] = filesToUse.map((f) => ({ file: f }));
+      setFiles((prev) => [...prev, ...next]);
+      const rejectedCount = all.length - filesToUse.length;
+      if (rejectedCount > 0) {
+        addToast(
+          "Unsupported audio type. Use MP3/WAV/M4A/OGG/FLAC.",
+          "warning",
+        );
+      }
+    } else {
+      // image mode (existing behavior)
+      const accepted = all.filter(
+        (f) =>
+          /image\/(jpeg|jpg|png)/.test(f.type) && f.size <= 10 * 1024 * 1024,
       );
+      const rejected = all.filter((f) => !accepted.includes(f));
+      const next: FileItem[] = accepted.map((f) => ({
+        file: f,
+        previewUrl: URL.createObjectURL(f),
+      }));
+      setFiles((prev) => [...prev, ...next]);
+      if (rejected.length)
+        addToast(
+          `${rejected.length} file(s) rejected (type or >10MB).`,
+          "warning",
+        );
+    }
     // input reset handled within FilePicker
   };
 
@@ -100,7 +227,8 @@ export default function Home() {
     // input reset handled within FilePicker
   };
 
-  const resetPromptToDefault = () => setPrompt(DEFAULT_PROMPT);
+  const resetPromptToDefault = () =>
+    setPrompt(mode === "audio" ? DEFAULT_PROMPT_AUDIO : DEFAULT_PROMPT);
 
   const clearAllRequests = () => {
     // Abort inflight streams then clear
@@ -125,14 +253,39 @@ export default function Home() {
     return form;
   }
 
+  function getMediaType(file: File): string {
+    const t = file.type?.trim();
+    if (t) return t;
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    if (!ext) return "application/octet-stream";
+    const map: Record<string, string> = {
+      mp3: "audio/mp3",
+      m4a: "audio/mp4",
+      wav: "audio/wav",
+      aac: "audio/aac",
+      ogg: "audio/ogg",
+      flac: "audio/flac",
+      aiff: "audio/aiff",
+      aif: "audio/aiff",
+      jpg: "image/jpeg",
+      jpeg: "image/jpeg",
+      png: "image/png",
+    };
+    return map[ext] ?? "application/octet-stream";
+  }
+
   function addProcessingCard(
-    args: Pick<Card, "prompt" | "files"> & { filesBlob?: { file: File }[] },
+    args: Pick<Card, "prompt" | "files"> & {
+      mode?: "image" | "audio";
+      filesBlob?: { file: File }[];
+    },
   ): string {
     const id = crypto.randomUUID();
     const createdAt = Date.now();
     setCards((prev) => [
       {
         id,
+        mode: args.mode,
         prompt: args.prompt,
         files: args.files,
         filesBlob: args.filesBlob,
@@ -167,10 +320,11 @@ export default function Home() {
         content.push({
           type: "file",
           data: new Uint8Array(await f.arrayBuffer()),
-          mediaType: f.type || "image/jpeg",
+          mediaType: getMediaType(f),
         });
       }
 
+      // Track whether any non-whitespace content has been received
       let gotData = false;
       let gotError = false;
 
@@ -222,8 +376,8 @@ export default function Home() {
             }
           }
 
-          // If nothing streamed but final text is present, append it now
-          if (!gotData && text) {
+          // If nothing meaningful streamed but final text is present, append it now
+          if (!gotData && text?.trim()) {
             setCards((prev) =>
               updateById(prev, id, (c) => ({
                 resultMarkdown: (c.resultMarkdown || "") + text,
@@ -232,18 +386,34 @@ export default function Home() {
             gotData = true;
           }
 
-          if (usage) {
-            const computedTotal = computeUsageTotal(usage);
+          // If, after finish, there is still no meaningful content, treat as failure
+          if (!gotData && !text?.trim()) {
             setCards((prev) =>
               updateById(prev, id, {
-                status: "complete",
-                usage,
-                usageTotal: computedTotal,
+                status: "failed",
+                error: "Empty response",
+                // Preserve any usage info if available for diagnostics
+                ...(usage
+                  ? { usage, usageTotal: computeUsageTotal(usage) }
+                  : {}),
               }),
             );
+            if (opts.showErrorToast)
+              addToast("Empty response from model", "destructive");
           } else {
-            // Even if no usage, if we got text, mark complete
-            setCards((prev) => updateById(prev, id, { status: "complete" }));
+            // Success path: mark complete, attaching usage when available
+            if (usage) {
+              const computedTotal = computeUsageTotal(usage);
+              setCards((prev) =>
+                updateById(prev, id, {
+                  status: "complete",
+                  usage,
+                  usageTotal: computedTotal,
+                }),
+              );
+            } else {
+              setCards((prev) => updateById(prev, id, { status: "complete" }));
+            }
           }
         },
       });
@@ -280,7 +450,7 @@ export default function Home() {
           continue;
         }
         if (t === "text" || t === "text-delta") {
-          const delta =
+          const deltaRaw =
             (part as { text?: string; delta?: string; textDelta?: string })
               .text ||
             (part as { text?: string; delta?: string; textDelta?: string })
@@ -288,11 +458,19 @@ export default function Home() {
             (part as { text?: string; delta?: string; textDelta?: string })
               .textDelta ||
             "";
-          if (delta) {
+          // Consider only non-whitespace as meaningful output
+          if (deltaRaw.trim()) {
             gotData = true;
             setCards((prev) =>
               updateById(prev, id, (c) => ({
-                resultMarkdown: (c.resultMarkdown || "") + delta,
+                resultMarkdown: (c.resultMarkdown || "") + deltaRaw,
+              })),
+            );
+          } else if (deltaRaw) {
+            // Preserve whitespace in the transcript but do not count it as data
+            setCards((prev) =>
+              updateById(prev, id, (c) => ({
+                resultMarkdown: (c.resultMarkdown || "") + deltaRaw,
               })),
             );
           }
@@ -323,34 +501,54 @@ export default function Home() {
 
   const submit = async () => {
     if (!canSubmit) return;
-    const id = addProcessingCard({
-      prompt,
-      files: files.map((f) => ({
-        name: f.file.name,
-        size: f.file.size,
-        type: f.file.type,
-      })),
-      filesBlob: files.map((f) => ({ file: f.file })),
-    });
-    // Immediately clear the selected files from the picker to prevent
-    // accidental double-submit with the same selection. The card retains
-    // its own copy via `files`/`filesBlob` for retry.
-    clearAllFiles();
-    try {
-      await runOcrStream(
-        id,
-        buildFormData(
+    if (mode === "audio") {
+      // One card per file, run all concurrently
+      const items = files.slice(0, 10);
+      const runs: Promise<void>[] = [];
+      for (const { file } of items) {
+        const id = addProcessingCard({
+          mode: "audio",
           prompt,
-          files.map((f) => f.file),
-        ),
-        { showErrorToast: true },
-      );
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : "Unknown error";
-      setCards((prev) =>
-        updateById(prev, id, { status: "failed", error: message }),
-      );
-      addToast(`Failed: ${message}`, "destructive");
+          files: [{ name: file.name, size: file.size, type: file.type }],
+          filesBlob: [{ file }],
+        });
+        runs.push(
+          runOcrStream(id, buildFormData(prompt, [file]), {
+            showErrorToast: true,
+          }).then(() => void 0),
+        );
+      }
+      clearAllFiles();
+      await Promise.allSettled(runs);
+    } else {
+      // Image mode: one card with all files
+      const id = addProcessingCard({
+        mode: "image",
+        prompt,
+        files: files.map((f) => ({
+          name: f.file.name,
+          size: f.file.size,
+          type: f.file.type,
+        })),
+        filesBlob: files.map((f) => ({ file: f.file })),
+      });
+      clearAllFiles();
+      try {
+        await runOcrStream(
+          id,
+          buildFormData(
+            prompt,
+            files.map((f) => f.file),
+          ),
+          { showErrorToast: true },
+        );
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Unknown error";
+        setCards((prev) =>
+          updateById(prev, id, { status: "failed", error: message }),
+        );
+        addToast(`Failed: ${message}`, "destructive");
+      }
     }
   };
 
@@ -431,8 +629,21 @@ export default function Home() {
         </div>
         {/* Left: Inputs */}
         <section className="space-y-4">
+          <ModeToggle
+            mode={mode}
+            onChange={(next) => {
+              if (next === mode) return;
+              if (files.length > 0) {
+                setPendingMode(next);
+                setConfirmOpen(true);
+                return;
+              }
+              setMode(next);
+            }}
+          />
           <FilePicker
             files={files}
+            mode={mode}
             onPickFiles={onPickFiles}
             onDrop={onDrop}
             removeFile={removeFile}
@@ -505,6 +716,32 @@ export default function Home() {
           </div>
         </section>
       </div>
+
+      {/* Confirm clear files on mode switch */}
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Switch mode and clear files?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You have files selected for the current mode. Switching to the
+              other mode will clear the selected files to prevent mixing
+              incompatible types.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Stay</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                clearAllFiles();
+                if (pendingMode) setMode(pendingMode);
+                setPendingMode(null);
+              }}
+            >
+              Switch & Clear
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Result Dialog */}
       <ResultDialog

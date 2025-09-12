@@ -8,6 +8,7 @@ Image → Markdown OCR powered by Google Gemini and the Vercel AI SDK. Upload on
 
 - Streaming OCR to Markdown using `@ai-sdk/google` (`gemini-2.5-flash`).
 - Multiple image uploads; client‑side type/size validation.
+- Audio → Markdown mode: submit up to 10 audio files (≤ 20 MB each), each runs concurrently in its own card.
 - Token usage display (input/output/total/reasoning) when provided by the provider.
 - Raw vs. rendered Markdown views, copy to clipboard, expand dialog, and retry.
 - Dark mode with `next-themes`; responsive, mobile‑first layout.
@@ -87,6 +88,20 @@ npm run lint
 2. Adjust the prompt (a robust OCR→Markdown template is provided by default).
 3. Submit and watch streamed Markdown accumulate.
 4. Toggle Raw/Preview, Copy, Expand, or Retry a request.
+
+---
+
+## Audio Mode
+
+- Toggle `Mode: Audio` at the top of the left column.
+- Select up to 10 audio files. Supported types: MP3, M4A, WAV, OGG, FLAC, AIFF (≤ 20 MB each).
+- Each audio file becomes its own request card and streams concurrently. If you hit rate limits (e.g., 429), use Retry on the affected card.
+- Prompts are stored per‑mode and the Reset button resets only the current mode’s default.
+
+Notes
+
+- Audio is sent inline to Gemini; the 20 MB per‑file cap reflects the inline request size limit.
+- To handle larger files, consider compressing/trimming audio. A server‑side upload path can be added later if needed.
 
 ---
 

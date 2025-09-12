@@ -14,6 +14,7 @@ export type FileItem = {
 
 export function FilePicker(props: {
   files: FileItem[];
+  mode?: "image" | "audio";
   onPickFiles: (files: FileList | null) => void;
   onDrop: React.DragEventHandler<HTMLElement>;
   removeFile: (idx: number) => void;
@@ -32,9 +33,14 @@ export function FilePicker(props: {
     }
   }, [props.files.length]);
 
+  const mode = props.mode ?? "image";
+  const isAudio = mode === "audio";
+
   return (
     <section className="space-y-4">
-      <h1 className="text-xl font-semibold">Image → Markdown OCR</h1>
+      <h1 className="text-xl font-semibold">
+        {isAudio ? "Audio → Markdown" : "Image → Markdown OCR"}
+      </h1>
       <section
         onDragEnter={(e) => {
           if (Array.from(e.dataTransfer?.types || []).includes("Files")) {
@@ -62,13 +68,15 @@ export function FilePicker(props: {
           dragActive ? "bg-accent/40 border-ring ring-2" : "hover:bg-accent/30",
         )}
       >
-        Drag & drop JPEG/PNG here, or
+        {isAudio
+          ? "Drag & drop MP3/WAV/M4A/OGG/FLAC (≤ 20 MB each), or"
+          : "Drag & drop JPEG/PNG here, or"}
         <div className="mt-2 flex items-center gap-3">
           <Input
             id="file-input"
             ref={inputRef}
             type="file"
-            accept="image/jpeg,image/png"
+            accept={isAudio ? "audio/*" : "image/jpeg,image/png"}
             className="sr-only w-px h-px"
             multiple
             onChange={(e) => {

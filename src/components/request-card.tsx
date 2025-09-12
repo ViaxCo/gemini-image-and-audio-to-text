@@ -66,7 +66,16 @@ export function RequestCard(props: {
             >
               Tokens {tokensDisplayStr}
             </span>
-            <div className="text-xs uppercase tracking-wide opacity-70">
+            <div
+              className={
+                "text-xs uppercase tracking-wide " +
+                (card.status === "failed"
+                  ? "text-red-600 dark:text-red-400"
+                  : card.status === "complete"
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-muted-foreground")
+              }
+            >
               {card.status}
             </div>
           </div>
@@ -112,11 +121,23 @@ export function RequestCard(props: {
         )}
       </CardHeader>
       <CardContent className="pt-6">
-        {/* Compact filenames: first … last with +N more toggle */}
+        {/* Filenames: image cards show compact header; audio cards show plain truncated text */}
         <div className="mb-2">
-          <div className="flex flex-wrap items-center gap-1">
+          <div className="flex flex-wrap items-center gap-1 min-w-0">
             {(() => {
               if (card.files.length === 0) return null;
+              // Audio mode: show plain text, single line, ellipsis on overflow
+              if (card.mode === "audio") {
+                const f = card.files[0];
+                return (
+                  <span
+                    title={f?.name}
+                    className="block max-w-full truncate text-sm text-foreground"
+                  >
+                    {f?.name ?? "(audio)"}
+                  </span>
+                );
+              }
               if (card.files.length === 1)
                 return (
                   <Badge
@@ -154,7 +175,7 @@ export function RequestCard(props: {
                 </>
               );
             })()}
-            {card.files.length > 2 && (
+            {card.files.length > 2 && card.mode !== "audio" && (
               <details
                 open={filesOpen}
                 onToggle={(e) =>
@@ -191,9 +212,11 @@ export function RequestCard(props: {
                 </div>
               </details>
             )}
-            <span className="text-xs text-muted-foreground ml-auto">
-              {card.files.length} file{card.files.length === 1 ? "" : "s"}
-            </span>
+            {card.mode !== "audio" && (
+              <span className="text-xs text-muted-foreground ml-auto">
+                {card.files.length} file{card.files.length === 1 ? "" : "s"}
+              </span>
+            )}
           </div>
         </div>
         {card.status === "failed" && (

@@ -9,6 +9,7 @@ export type FileMeta = { name: string; size: number; type: string };
 
 export type Card = {
   id: string;
+  mode?: "image" | "audio";
   prompt: string;
   files: FileMeta[];
   filesBlob?: { file: File }[]; // for Retry only
