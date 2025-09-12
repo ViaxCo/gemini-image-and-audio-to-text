@@ -14,7 +14,7 @@ export type Card = {
   files: FileMeta[];
   filesBlob?: { file: File }[]; // for Retry only
   status: "processing" | "complete" | "failed";
-  resultMarkdown?: string;
+  resultText?: string;
   error?: string;
   createdAt: number;
   usage?: Usage;

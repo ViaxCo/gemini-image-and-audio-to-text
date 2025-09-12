@@ -1,16 +1,16 @@
-# Gemini Image Processor
-
-Image → Markdown OCR powered by Google Gemini and the Vercel AI SDK. Upload one or more images (JPEG/PNG), provide an extraction prompt, and stream structured Markdown back with token usage metadata. Mobile‑first UI built with shadcn/ui.
+# Gemini Image & Audio to Text
+Image → Text OCR (and Audio → Text) powered by Google Gemini and the Vercel AI SDK. Upload one or more images (JPEG/PNG) or audio files, provide an extraction prompt, and stream structured text back with token usage metadata. You can download results as Markdown (.md) or Word (.docx), view formatted text (Markdown‑rendered) or the raw Markdown. Mobile‑first UI built with shadcn/ui.
 
 ---
 
 ## Features
 
-- Streaming OCR to Markdown using `@ai-sdk/google` (`gemini-2.5-flash`).
+- Streaming OCR/transcription to text using `@ai-sdk/google` (`gemini-2.5-flash`).
 - Multiple image uploads; client‑side type/size validation.
-- Audio → Markdown mode: submit up to 10 audio files (≤ 20 MB each), each runs concurrently in its own card.
+- Audio → Text mode: submit up to 10 audio files (≤ 20 MB each), each runs concurrently in its own card.
 - Token usage display (input/output/total/reasoning) when provided by the provider.
-- Raw vs. rendered Markdown views, copy to clipboard, expand dialog, and retry.
+- View formatted text (Markdown‑rendered) or Raw Markdown; copy, expand, and retry.
+- Download as Markdown (.md) or Word (.docx).
 - Dark mode with `next-themes`; responsive, mobile‑first layout.
 - shadcn/ui primitives for consistent, accessible UI.
 
@@ -85,8 +85,8 @@ npm run lint
 ## Usage
 
 1. Choose images (drag‑drop or Browse) — JPEG/PNG up to ~10 MB each.
-2. Adjust the prompt (a robust OCR→Markdown template is provided by default).
-3. Submit and watch streamed Markdown accumulate.
+2. Adjust the prompt (a robust OCR→Text template is provided by default).
+3. Submit and watch streamed text accumulate.
 4. Toggle Raw/Preview, Copy, Expand, or Retry a request.
 
 ---

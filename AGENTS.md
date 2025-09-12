@@ -17,7 +17,7 @@
 
 ## Purpose
 
-This repo is a Next.js 15 (App Router) app that performs image → Markdown OCR using Google Gemini via the Vercel AI SDK. The UI is built with shadcn/ui primitives and follows mobile‑first Tailwind v4 styling.
+This repo is a Next.js 15 (App Router) app that performs Image → Text OCR and Audio → Text transcription using Google Gemini via the Vercel AI SDK. The UI is built with shadcn/ui primitives and follows mobile‑first Tailwind v4 styling.
 
 ## Tech Stack (key packages)
 
@@ -83,7 +83,7 @@ This repo is a Next.js 15 (App Router) app that performs image → Markdown OCR 
 ## PR & Commit Policy
 
 - Do not commit unless explicitly requested.
-- When committing: short imperative subject + focused scope (e.g., `feat(ui): add markdown preview toggle`).
+- When committing: short imperative subject + focused scope (e.g., `feat(ui): add text preview toggle`).
 
 ## Environment
 

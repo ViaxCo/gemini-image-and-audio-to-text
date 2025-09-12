@@ -39,7 +39,7 @@ export function FilePicker(props: {
   return (
     <section className="space-y-4">
       <h1 className="text-xl font-semibold">
-        {isAudio ? "Audio → Markdown" : "Image → Markdown OCR"}
+        {isAudio ? "Audio → Text" : "Image → Text OCR"}
       </h1>
       <section
         onDragEnter={(e) => {

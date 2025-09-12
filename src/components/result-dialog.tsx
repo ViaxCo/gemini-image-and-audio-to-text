@@ -15,7 +15,7 @@ import {
 export function ResultDialog(props: {
   openId: string | null;
   onOpenChange: (open: boolean) => void;
-  markdown?: string;
+  text?: string;
   raw: boolean;
   onToggleRaw: () => void;
   onCopy: (text?: string) => void;
@@ -35,12 +35,12 @@ export function ResultDialog(props: {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => props.onCopy(props.markdown)}
+                onClick={() => props.onCopy(props.text)}
               >
                 Copy
               </Button>
               <DownloadMenu
-                markdown={props.markdown}
+                text={props.text}
                 suggestedBaseName={props.files?.[0]?.name}
                 variant="outline"
                 size="sm"
@@ -63,13 +63,11 @@ export function ResultDialog(props: {
               </Button>
             </div>
             {props.raw ? (
-              <pre className="whitespace-pre-wrap text-sm">
-                {props.markdown}
-              </pre>
+              <pre className="whitespace-pre-wrap text-sm">{props.text}</pre>
             ) : (
               <div className="text-sm">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {props.markdown || ""}
+                  {props.text || ""}
                 </ReactMarkdown>
               </div>
             )}

@@ -380,7 +380,7 @@ Format the text with:
           if (!gotData && text?.trim()) {
             setCards((prev) =>
               updateById(prev, id, (c) => ({
-                resultMarkdown: (c.resultMarkdown || "") + text,
+                resultText: (c.resultText || "") + text,
               })),
             );
             gotData = true;
@@ -463,14 +463,14 @@ Format the text with:
             gotData = true;
             setCards((prev) =>
               updateById(prev, id, (c) => ({
-                resultMarkdown: (c.resultMarkdown || "") + deltaRaw,
+                resultText: (c.resultText || "") + deltaRaw,
               })),
             );
           } else if (deltaRaw) {
             // Preserve whitespace in the transcript but do not count it as data
             setCards((prev) =>
               updateById(prev, id, (c) => ({
-                resultMarkdown: (c.resultMarkdown || "") + deltaRaw,
+                resultText: (c.resultText || "") + deltaRaw,
               })),
             );
           }
@@ -562,7 +562,7 @@ Format the text with:
     setCards((prev) =>
       updateById(prev, id, {
         status: "processing",
-        resultMarkdown: undefined,
+        resultText: undefined,
         error: undefined,
         usage: undefined,
         usageTotal: undefined,
@@ -749,7 +749,7 @@ Format the text with:
         onOpenChange={(open) => {
           if (!open) setExpandedId(null);
         }}
-        markdown={selectedCard?.resultMarkdown}
+        text={selectedCard?.resultText}
         files={selectedCard?.files}
         audioFile={
           selectedCard?.mode === "audio" && selectedCard.status === "complete"

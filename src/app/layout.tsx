@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Gemini Image Processor",
-  description: "Image → Markdown OCR powered by Gemini",
+  title: "Gemini Image & Audio to Text",
+  description: "Image → Text OCR and Audio → Text, powered by Gemini",
 };
 
 export default function RootLayout({

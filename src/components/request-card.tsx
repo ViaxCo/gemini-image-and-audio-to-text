@@ -230,7 +230,7 @@ export function RequestCard(props: {
         {card.status === "failed" && (
           <div className="text-sm text-destructive">{card.error}</div>
         )}
-        {card.resultMarkdown && (
+        {card.resultText && (
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-xs">
               <span className="opacity-70">View:</span>
@@ -240,12 +240,12 @@ export function RequestCard(props: {
             </div>
             {props.raw ? (
               <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-sm bg-accent/30 p-2 rounded">
-                {card.resultMarkdown}
+                {card.resultText}
               </pre>
             ) : (
               <div className="max-h-64 overflow-auto text-sm border rounded p-2">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {card.resultMarkdown}
+                  {card.resultText}
                 </ReactMarkdown>
               </div>
             )}
@@ -263,20 +263,20 @@ export function RequestCard(props: {
           ) : null}
           <Button
             variant="outline"
-            onClick={() => props.onCopy(card.resultMarkdown)}
-            disabled={!card.resultMarkdown}
+            onClick={() => props.onCopy(card.resultText)}
+            disabled={!card.resultText}
           >
             Copy
           </Button>
           <DownloadMenu
-            markdown={card.resultMarkdown}
+            text={card.resultText}
             suggestedBaseName={card.files?.[0]?.name}
             variant="outline"
           />
           <Button
             variant="outline"
             onClick={() => props.onExpand(card.id)}
-            disabled={!card.resultMarkdown}
+            disabled={!card.resultText}
           >
             Expand
           </Button>

@@ -12,7 +12,7 @@ type UnifiedLike = {
 };
 
 type Props = {
-  markdown?: string;
+  text?: string;
   suggestedBaseName?: string;
   className?: string;
   size?: "sm" | "default" | "lg" | "icon";
@@ -32,7 +32,7 @@ function baseName(name?: string) {
 }
 
 export function DownloadMenu({
-  markdown,
+  text,
   suggestedBaseName,
   className,
   size = "default",
@@ -41,7 +41,7 @@ export function DownloadMenu({
 }: Props) {
   const [open, setOpen] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement | null>(null);
-  const disabled = !markdown;
+  const disabled = !text;
 
   React.useEffect(() => {
     function onDocClick(e: MouseEvent) {
@@ -53,14 +53,14 @@ export function DownloadMenu({
   }, [open]);
 
   const onDownloadMd = () => {
-    if (!markdown) return;
-    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+    if (!text) return;
+    const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
     downloadBlob(`${baseName(suggestedBaseName)}.md`, blob);
     setOpen(false);
   };
 
   const onDownloadDocx = async () => {
-    if (!markdown) return;
+    if (!text) return;
     try {
       const [{ unified }, remarkParseMod, remarkGfmMod] = await Promise.all([
         import("unified"),
@@ -78,7 +78,7 @@ export function DownloadMenu({
       const mdast = (unified as unknown as () => UnifiedLike)()
         .use(parsePlugin)
         .use(gfmPlugin)
-        .parse(markdown);
+        .parse(text);
 
       const m2d = (await import("mdast2docx")) as unknown as {
         toDocx: (
