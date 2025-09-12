@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,6 +21,16 @@ export function FilePicker(props: {
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragActive, setDragActive] = useState(false);
+
+  // When the parent clears all files (e.g., after Submit), also reset
+  // the hidden native input so selecting the same files fires `change` again.
+  // This mirrors the behavior used by the visible "Clear all" button below.
+  useEffect(() => {
+    if (props.files.length === 0 && inputRef.current) {
+      inputRef.current.value = "";
+      mirrorFileListToInput(inputRef.current, null);
+    }
+  }, [props.files.length]);
 
   return (
     <section className="space-y-4">

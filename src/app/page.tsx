@@ -332,6 +332,10 @@ export default function Home() {
       })),
       filesBlob: files.map((f) => ({ file: f.file })),
     });
+    // Immediately clear the selected files from the picker to prevent
+    // accidental double-submit with the same selection. The card retains
+    // its own copy via `files`/`filesBlob` for retry.
+    clearAllFiles();
     try {
       await runOcrStream(
         id,
