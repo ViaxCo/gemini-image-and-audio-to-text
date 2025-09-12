@@ -677,7 +677,7 @@ Format the text with:
         {/* Right: Cards */}
         <section className="space-y-4">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="text-lg font-semibold">Requests</h2>
+            <h2 className="text-lg font-semibold">Requests ({cards.length})</h2>
             {cards.length > 0 ? (
               <Button
                 variant="outline"
