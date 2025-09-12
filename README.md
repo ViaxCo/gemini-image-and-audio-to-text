@@ -1,27 +1,28 @@
 # Gemini Image & Audio to Text
-Image → Text OCR (and Audio → Text) powered by Google Gemini and the Vercel AI SDK. Upload one or more images (JPEG/PNG) or audio files, provide an extraction prompt, and stream structured text back with token usage metadata. You can download results as Markdown (.md) or Word (.docx), view formatted text (Markdown‑rendered) or the raw Markdown. Mobile‑first UI built with shadcn/ui.
 
----
+Image → Text OCR and Audio → Text in the browser using Google Gemini and the Vercel AI SDK. Drag/drop images (JPEG/PNG) or audio (MP3/M4A/WAV/OGG/FLAC/AIFF), edit the prompt, and stream structured text back with token‑usage metadata. Results can be previewed as Markdown or viewed raw, copied, expanded, or downloaded as `.md`/`.docx`. The UI is responsive, mobile‑first, and built with shadcn/ui.
 
-## Features
+--------------------------------------------------------------------------------
 
-- Streaming OCR/transcription to text using `@ai-sdk/google` (`gemini-2.5-flash`).
-- Multiple image uploads; client‑side type/size validation.
-- Audio → Text mode: submit up to 10 audio files (≤ 20 MB each), each runs concurrently in its own card.
-- Token usage display (input/output/total/reasoning) when provided by the provider.
-- View formatted text (Markdown‑rendered) or Raw Markdown; copy, expand, and retry.
-- Download as Markdown (.md) or Word (.docx).
-- Dark mode with `next-themes`; responsive, mobile‑first layout.
-- shadcn/ui primitives for consistent, accessible UI.
+## Highlights
 
----
+- Streaming OCR/transcription via `ai` + `@ai-sdk/google` on `gemini-2.5-flash`.
+- BYOK in the browser: key stored in `localStorage` (never sent to a server).
+- Image mode: multiple JPEG/PNG files (≤ 10 MB each), combined in one request.
+- Audio mode: up to 10 files (≤ 20 MB each), each processed concurrently.
+- Token usage panel (input/output/total/reasoning) when the provider returns it.
+- Markdown preview or raw view; copy, expand dialog, retry, cancel in‑flight.
+- One‑click download to Markdown or Word (`mdast2docx`, with optional plugins).
+- Dark mode (`next-themes`) and accessible shadcn/ui building blocks.
+
+--------------------------------------------------------------------------------
 
 ## Quick Start
 
 Prerequisites
 
 - Node.js 18+ (recommend 20+)
-- A Google Generative AI API key
+- A Google Generative AI API key (get one free from Google AI Studio)
 
 Install
 
@@ -29,93 +30,185 @@ Install
 npm install
 ```
 
-API Key (BYOK)
-
-- Open the app and enter your Gemini API key in the “Gemini API Key” bar.
-- The key is stored in your browser (`localStorage`) under `gemini_api_key` and never sent to any server.
-- Requests are made directly from your browser to Google Gemini.
-
-Run (dev)
+Run (development)
 
 ```bash
 npm run dev
-# app runs at http://localhost:5174
+# Opens on http://localhost:5174
 ```
 
-Build & start (prod)
+Build and start (production)
 
 ```bash
 npm run build
 npm start
 ```
 
-Format & lint
+Format and lint
 
 ```bash
 npm run format
 npm run lint
 ```
 
----
+--------------------------------------------------------------------------------
+
+## API Key (BYOK)
+
+- Enter your Gemini API key in the “Gemini API Key” bar at the top.
+- The key is stored only in your browser (`localStorage` under `gemini_api_key`).
+- The app calls Google directly from the client; there is no server proxy.
+- `.env.local` is not required for this app. If present, it is ignored by the
+  client‑side code. Prefer entering the key in the UI.
+
+Security tips
+
+- Restrict the key to your site origin in Google AI Studio when deploying.
+- Rotate keys periodically; use least‑privilege where available.
+
+--------------------------------------------------------------------------------
+
+## Usage
+
+1) Choose mode
+
+- Image OCR or Audio → Text. Switching modes clears selected files by design.
+
+2) Add files
+
+- Image mode: drag/drop or choose JPEG/PNG files (≤ 10 MB each).
+- Audio mode: drag/drop or choose audio files (MP3/M4A/WAV/OGG/FLAC/AIFF, ≤ 20 MB each; first 10 kept).
+
+3) Edit the prompt
+
+- A strong default is provided for each mode. Reset only affects current mode.
+
+4) Submit and monitor
+
+- Streaming text appears in a request card. View as Preview (Markdown‑rendered)
+  or Raw. Cancel, Retry, Copy, Expand, or Download as `.md`/`.docx`.
+
+--------------------------------------------------------------------------------
+
+## Limits and Formats
+
+- Images: `image/jpeg`, `image/png`, ≤ 10 MB per file.
+- Audio: MP3, M4A, WAV, AAC, OGG, FLAC, AIFF/AIF, ≤ 20 MB per file, ≤ 10 files per submission.
+- Large audio: compress or trim before uploading (inline upload limit).
+
+--------------------------------------------------------------------------------
 
 ## Tech Stack
 
 - Next.js 15 (App Router), React 19
 - Tailwind CSS v4
 - Vercel AI SDK v5 (`ai`) + `@ai-sdk/google`
-- shadcn/ui (Radix UI), `next-themes`, `lucide-react`
+- Radix UI + shadcn/ui, `next-themes`, `lucide-react`
 - Biome for lint/format
 
----
+--------------------------------------------------------------------------------
 
-## Architecture
+## How It Works
 
-- UI entry: `src/app/page.tsx`
-  - File picker, prompt editor, API key bar, and request cards.
-  - Calls Gemini directly from the browser via AI SDK `streamText`; accumulates text deltas and normalizes usage metadata on finish.
-- No server proxy:
-  - Your key is used only in the browser.
-- Components: `src/components`
-  - `api-key-bar.tsx` stores/clears the key in `localStorage`.
-  - `ui/` contains shadcn/ui primitives used by higher‑level components.
-  - `theme-provider.tsx` and `theme-toggle.tsx` wire up dark mode.
+- Entry point: `src/app/page.tsx`
+  - Wires up the API key bar, file picker, prompt editor, and request list.
+  - Uses hooks to manage mode, files, toasts, and streaming.
 
----
+- Submit flow
+  - `use-submit-actions` creates a card, builds a `FormData` with prompt/files,
+    and calls `use-stream-runner`.
+  - `use-stream-runner` uses `createGoogleGenerativeAI` + `streamText` to call
+    `gemini-2.5-flash` from the browser and incrementally append text.
+  - Usage is normalized from either `totalUsage` or
+    `response.providerMetadata.google.usageMetadata`.
 
-## Usage
+- Request cards: `src/components/request-card.tsx`
+  - Shows filenames (with an expandable list for many images), status, token
+    breakdown, Markdown preview, copy/expand/download actions, and Retry.
+  - Audio requests render an inline custom audio player for the original file.
 
-1. Choose images (drag‑drop or Browse) — JPEG/PNG up to ~10 MB each.
-2. Adjust the prompt (a robust OCR→Text template is provided by default).
-3. Submit and watch streamed text accumulate.
-4. Toggle Raw/Preview, Copy, Expand, or Retry a request.
+- Downloads: `src/components/download-menu.tsx`
+  - Markdown: saved as `.md` directly.
+  - Word: dynamically imports `mdast2docx` and optional plugins (`@m2d/table`,
+    `@m2d/list`, `@m2d/image`) to produce a `.docx`. Falls back gracefully if
+    plugins are unavailable.
 
----
+Relevant source
 
-## Audio Mode
+- Prompts: `src/lib/default-prompts.ts`
+- Storage keys: `src/lib/constants.ts`
+- Stream helpers/types: `src/lib/stream-utils.ts`, `src/lib/stream-types.ts`
+- UI theming: `src/components/theme-provider.tsx`, `src/components/theme-toggle.tsx`
 
-- Toggle `Mode: Audio` at the top of the left column.
-- Select up to 10 audio files. Supported types: MP3, M4A, WAV, OGG, FLAC, AIFF (≤ 20 MB each).
-- Each audio file becomes its own request card and streams concurrently. If you hit rate limits (e.g., 429), use Retry on the affected card.
-- Prompts are stored per‑mode and the Reset button resets only the current mode’s default.
+--------------------------------------------------------------------------------
 
-Notes
+## Scripts
 
-- Audio is sent inline to Gemini; the 20 MB per‑file cap reflects the inline request size limit.
-- To handle larger files, consider compressing/trimming audio. A server‑side upload path can be added later if needed.
+- `npm run dev`: start Next dev on port 5174 with Turbopack
+- `npm run build`: build with Turbopack
+- `npm run start`: start production server
+- `npm run format`: format with Biome
+- `npm run lint`: lint with Biome
+- `npm run type-check`: TypeScript project references build
 
----
+--------------------------------------------------------------------------------
 
-## Notes
+## Customization
 
-- Supported images: JPEG/PNG up to ~10 MB each.
-- Token usage is displayed when provided by the provider; totals are computed from available fields.
-- For added safety, restrict your API key to your site origin in Google AI Studio and rotate keys periodically.
+- Default prompts: adjust `DEFAULT_PROMPT` and `DEFAULT_PROMPT_AUDIO` in
+  `src/lib/default-prompts.ts`.
+- UI: tweak shadcn/ui components in `src/components` and Tailwind tokens in
+  `src/app/globals.css`.
+- Model: change the model name in `src/hooks/use-stream-runner.ts` if desired.
 
----
+--------------------------------------------------------------------------------
 
-## UI & Conventions
+## Privacy & Security
 
-- Mobile‑first: start with base styles; enhance with `sm:`, `md:`, `lg:` breakpoints.
-- shadcn/ui: prefer primitives and composed blocks for consistency and a11y.
-- Theming: Dark mode via `next-themes`. Toggle is fixed bottom‑right.
-- Styling: Tailwind v4 utilities; use `cn()` for conditional classes.
+- The API key never leaves the browser. Requests go directly to Google.
+- No app server stores or proxies your data.
+- To clear the key, use the UI “Clear” button or run
+  `localStorage.removeItem('gemini_api_key')` in DevTools.
+
+--------------------------------------------------------------------------------
+
+## Troubleshooting
+
+- “Invalid API key” or `api_key_invalid`
+  - Ensure you pasted a valid key and pressed Save. The app surfaces a helpful
+    message via `formatModelError`.
+
+- “Empty response”
+  - The provider returned no text. Try another prompt or smaller batch.
+
+- 429 / rate limits
+  - Audio mode submits files concurrently; Retry affected cards or reduce
+    concurrency.
+
+- `.docx` export fails
+  - The dynamic import of `mdast2docx` or its plugins may have failed. Retry or
+    download as `.md`.
+
+--------------------------------------------------------------------------------
+
+## Deploy
+
+- Vercel: no special config required. Build command `npm run build`; output is
+  the Next.js `.next` output. No server env vars are needed.
+- Other hosts: run `npm run build` and `npm start` on Node 18+.
+
+--------------------------------------------------------------------------------
+
+## License
+
+No license file is present. By default, all rights are reserved. If you intend
+to open‑source, add a `LICENSE` file.
+
+--------------------------------------------------------------------------------
+
+## Acknowledgements
+
+- Google Gemini via `@ai-sdk/google`
+- Vercel AI SDK (`ai`)
+- shadcn/ui + Radix UI
+- Tailwind CSS v4, `lucide-react`, `unified` ecosystem
