@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Button } from "@/components/ui/button";
+import { downloadBlob } from "@/lib/dom";
 import { cn } from "@/lib/utils";
 
 // Intentionally loose typings to avoid hard dependency on unified's types.
@@ -51,21 +52,10 @@ export function DownloadMenu({
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [open]);
 
-  const doDownload = (blob: Blob, filename: string) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  };
-
   const onDownloadMd = () => {
     if (!markdown) return;
     const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
-    doDownload(blob, `${baseName(suggestedBaseName)}.md`);
+    downloadBlob(`${baseName(suggestedBaseName)}.md`, blob);
     setOpen(false);
   };
 
@@ -137,7 +127,7 @@ export function DownloadMenu({
         });
       }
 
-      doDownload(outBlob, `${baseName(suggestedBaseName)}.docx`);
+      downloadBlob(`${baseName(suggestedBaseName)}.docx`, outBlob);
     } catch (err) {
       console.error("DOCX export failed", err);
       alert("Sorry, exporting to .docx failed. See console for details.");

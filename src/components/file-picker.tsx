@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { mirrorFileListToInput } from "@/lib/dom";
 import { cn } from "@/lib/utils";
 
 export type FileItem = {
@@ -42,18 +43,8 @@ export function FilePicker(props: {
           // Let the parent handle state
           props.onDrop(e);
           // Mirror files into the native input so it shows "N files"
-          try {
-            if (inputRef.current) {
-              const dt = new DataTransfer();
-              Array.from(e.dataTransfer.files || []).forEach((f) => {
-                dt.items.add(f);
-              });
-              (inputRef.current as unknown as { files: FileList }).files =
-                dt.files;
-            }
-          } catch {
-            // Non-fatal: some browsers may disallow programmatic assignment.
-          }
+          if (inputRef.current)
+            mirrorFileListToInput(inputRef.current, e.dataTransfer.files);
         }}
         aria-label="File dropzone"
         className={cn(
@@ -104,17 +95,9 @@ export function FilePicker(props: {
                 size="sm"
                 onClick={() => {
                   props.clearAllFiles();
-                  try {
-                    if (inputRef.current) {
-                      // Reset the native input to reflect cleared state
-                      inputRef.current.value = "";
-                      const dt = new DataTransfer();
-                      (
-                        inputRef.current as unknown as { files: FileList }
-                      ).files = dt.files;
-                    }
-                  } catch {
-                    // non-fatal
+                  if (inputRef.current) {
+                    inputRef.current.value = "";
+                    mirrorFileListToInput(inputRef.current, null);
                   }
                 }}
               >

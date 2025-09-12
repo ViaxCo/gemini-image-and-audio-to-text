@@ -2,37 +2,19 @@
 
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { streamText } from "ai";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiKeyBar } from "@/components/api-key-bar";
 import { type FileItem, FilePicker } from "@/components/file-picker";
 import { PromptEditor } from "@/components/prompt-editor";
-import {
-  RequestCard,
-  type Card as RequestCardType,
-} from "@/components/request-card";
+import { RequestCard } from "@/components/request-card";
 import { ResultDialog } from "@/components/result-dialog";
 import { Toasts } from "@/components/toasts";
 import { Button } from "@/components/ui/button";
-import { computeUsageTotal, type Usage as StreamUsage } from "@/lib/ai-stream";
-
-type Card = {
-  id: string;
-  prompt: string;
-  files: { name: string; size: number; type: string }[];
-  filesBlob?: { file: File }[]; // for Retry
-  status: "processing" | "complete" | "failed";
-  resultMarkdown?: string;
-  error?: string;
-  createdAt: number;
-  usage?: {
-    inputTokens?: number;
-    outputTokens?: number;
-    totalTokens?: number;
-    reasoningTokens?: number;
-  };
-  // Extra guard: store a computed total for display reliability
-  usageTotal?: number;
-};
+import { useToasts } from "@/hooks/use-toasts";
+import { STORAGE_KEYS } from "@/lib/constants";
+import { formatModelError } from "@/lib/errors";
+import { computeUsageTotal, updateById } from "@/lib/utils";
+import type { Card, Usage as StreamUsage } from "@/types";
 
 const DEFAULT_PROMPT = `Extract all text from the provided sources, in the numerical order of the sources.
 
@@ -55,13 +37,7 @@ export default function Home() {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [toasts, setToasts] = useState<
-    {
-      id: string;
-      msg: string;
-      variant?: "success" | "warning" | "destructive";
-    }[]
-  >([]);
+  const { toasts, addToast } = useToasts(2400);
   const [rawViewById, setRawViewById] = useState<Record<string, boolean>>({});
   const [hasApiKey, setHasApiKey] = useState<boolean>(false);
   const [hasDraftKey, setHasDraftKey] = useState<boolean>(false);
@@ -70,16 +46,16 @@ export default function Home() {
   );
 
   useEffect(() => {
-    const saved = localStorage.getItem("ocr_default_prompt");
+    const saved = localStorage.getItem(STORAGE_KEYS.PROMPT_DEFAULT);
     if (saved) setPrompt(saved);
   }, []);
   useEffect(() => {
-    localStorage.setItem("ocr_default_prompt", prompt);
+    localStorage.setItem(STORAGE_KEYS.PROMPT_DEFAULT, prompt);
   }, [prompt]);
 
   useEffect(() => {
     try {
-      const k = localStorage.getItem("gemini_api_key");
+      const k = localStorage.getItem(STORAGE_KEYS.GEMINI_API_KEY);
       setHasApiKey(!!k?.trim().length);
     } catch {}
   }, []);
@@ -97,7 +73,7 @@ export default function Home() {
     }));
     setFiles((prev) => [...prev, ...next]);
     if (rejected.length)
-      showToast(
+      addToast(
         `${rejected.length} file(s) rejected (type or >10MB).`,
         "warning",
       );
@@ -139,44 +115,7 @@ export default function Home() {
     setRawViewById({});
   };
 
-  const showToast = (
-    msg: string,
-    variant?: "success" | "warning" | "destructive",
-  ) => {
-    const id = crypto.randomUUID();
-    setToasts((prev) => [...prev, { id, msg, variant }]);
-    setTimeout(
-      () => setToasts((prev) => prev.filter((t) => t.id !== id)),
-      2400,
-    );
-  };
-
   const canSubmit = files.length > 0 && prompt.trim().length > 0 && hasApiKey;
-
-  function formatModelError(err: unknown): string {
-    // Based on AI SDK guidance: treat unknown, string, Error, or object
-    // and map common Gemini API key errors to a friendly message.
-    let msg = "Unknown error";
-    if (err == null) msg = "Unknown error";
-    else if (typeof err === "string") msg = err;
-    else if (err instanceof Error) msg = err.message || "Error";
-    else {
-      try {
-        msg = JSON.stringify(err);
-      } catch {
-        msg = String(err);
-      }
-    }
-    const lower = (msg || "").toLowerCase();
-    if (
-      lower.includes("api key not valid") ||
-      lower.includes("api_key_invalid") ||
-      lower.includes("invalid_argument")
-    ) {
-      return "Invalid API key. Open ‘Get an API key’, paste it, and press Save.";
-    }
-    return msg;
-  }
 
   // --- Small reused helpers (preserve exact behavior/messages) ---
   function buildFormData(p: string, fs: File[]): FormData {
@@ -211,7 +150,8 @@ export default function Home() {
     opts: { showErrorToast: boolean },
   ) {
     try {
-      const apiKey = localStorage.getItem("gemini_api_key")?.trim() || "";
+      const apiKey =
+        localStorage.getItem(STORAGE_KEYS.GEMINI_API_KEY)?.trim() || "";
       if (!apiKey) throw new Error("Missing API key");
 
       const prompt = String(form.get("prompt") || "");
@@ -285,11 +225,9 @@ export default function Home() {
           // If nothing streamed but final text is present, append it now
           if (!gotData && text) {
             setCards((prev) =>
-              prev.map((c) =>
-                c.id === id
-                  ? { ...c, resultMarkdown: (c.resultMarkdown || "") + text }
-                  : c,
-              ),
+              updateById(prev, id, (c) => ({
+                resultMarkdown: (c.resultMarkdown || "") + text,
+              })),
             );
             gotData = true;
           }
@@ -297,22 +235,15 @@ export default function Home() {
           if (usage) {
             const computedTotal = computeUsageTotal(usage);
             setCards((prev) =>
-              prev.map((c) =>
-                c.id === id
-                  ? {
-                      ...c,
-                      status: "complete",
-                      usage,
-                      usageTotal: computedTotal,
-                    }
-                  : c,
-              ),
+              updateById(prev, id, {
+                status: "complete",
+                usage,
+                usageTotal: computedTotal,
+              }),
             );
           } else {
             // Even if no usage, if we got text, mark complete
-            setCards((prev) =>
-              prev.map((c) => (c.id === id ? { ...c, status: "complete" } : c)),
-            );
+            setCards((prev) => updateById(prev, id, { status: "complete" }));
           }
         },
       });
@@ -330,68 +261,41 @@ export default function Home() {
         | { type: string; [k: string]: unknown };
 
       for await (const part of result.fullStream as AsyncIterable<FullStreamPart>) {
-        switch (part.type) {
-          case "text": {
-            const delta = (part as { text?: string }).text || "";
-            if (delta) {
-              gotData = true;
-              setCards((prev) =>
-                prev.map((c) =>
-                  c.id === id
-                    ? { ...c, resultMarkdown: (c.resultMarkdown || "") + delta }
-                    : c,
-                ),
-              );
-            }
-            break;
-          }
-          case "abort": {
-            gotError = true;
+        const t = (part?.type || "").toString();
+        if (t === "abort") {
+          gotError = true;
+          setCards((prev) =>
+            updateById(prev, id, { status: "failed", error: "Canceled" }),
+          );
+          continue;
+        }
+        if (t === "error") {
+          gotError = true;
+          const message = formatModelError((part as { error?: unknown }).error);
+          setCards((prev) =>
+            updateById(prev, id, { status: "failed", error: message }),
+          );
+          if (opts.showErrorToast)
+            addToast(`Failed: ${message}`, "destructive");
+          continue;
+        }
+        if (t === "text" || t === "text-delta") {
+          const delta =
+            (part as { text?: string; delta?: string; textDelta?: string })
+              .text ||
+            (part as { text?: string; delta?: string; textDelta?: string })
+              .delta ||
+            (part as { text?: string; delta?: string; textDelta?: string })
+              .textDelta ||
+            "";
+          if (delta) {
+            gotData = true;
             setCards((prev) =>
-              prev.map((c) =>
-                c.id === id ? { ...c, status: "failed", error: "Canceled" } : c,
-              ),
+              updateById(prev, id, (c) => ({
+                resultMarkdown: (c.resultMarkdown || "") + delta,
+              })),
             );
-            break;
           }
-          case "text-delta": {
-            const delta =
-              (part as { text?: string; delta?: string; textDelta?: string })
-                .text ||
-              (part as { text?: string; delta?: string; textDelta?: string })
-                .delta ||
-              (part as { text?: string; delta?: string; textDelta?: string })
-                .textDelta ||
-              "";
-            if (delta) {
-              gotData = true;
-              setCards((prev) =>
-                prev.map((c) =>
-                  c.id === id
-                    ? { ...c, resultMarkdown: (c.resultMarkdown || "") + delta }
-                    : c,
-                ),
-              );
-            }
-            break;
-          }
-          case "error": {
-            gotError = true;
-            const message = formatModelError(
-              (part as { error?: unknown }).error,
-            );
-            setCards((prev) =>
-              prev.map((c) =>
-                c.id === id ? { ...c, status: "failed", error: message } : c,
-              ),
-            );
-            if (opts.showErrorToast) {
-              showToast(`Failed: ${message}`, "destructive");
-            }
-            break;
-          }
-          default:
-            break;
         }
       }
 
@@ -403,18 +307,14 @@ export default function Home() {
               : c,
           ),
         );
-        showToast("Empty response from model", "destructive");
+        addToast("Empty response from model", "destructive");
       }
     } catch (e: unknown) {
       const message = formatModelError(e);
       setCards((prev) =>
-        prev.map((c) =>
-          c.id === id ? { ...c, status: "failed", error: message } : c,
-        ),
+        updateById(prev, id, { status: "failed", error: message }),
       );
-      if (opts.showErrorToast) {
-        showToast(`Failed: ${message}`, "destructive");
-      }
+      if (opts.showErrorToast) addToast(`Failed: ${message}`, "destructive");
     } finally {
       // Cleanup controller entry
       delete controllersRef.current[id];
@@ -444,11 +344,9 @@ export default function Home() {
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Unknown error";
       setCards((prev) =>
-        prev.map((c) =>
-          c.id === id ? { ...c, status: "failed", error: message } : c,
-        ),
+        updateById(prev, id, { status: "failed", error: message }),
       );
-      showToast(`Failed: ${message}`, "destructive");
+      addToast(`Failed: ${message}`, "destructive");
     }
   };
 
@@ -460,19 +358,14 @@ export default function Home() {
     const id = card.id;
     // Reset this card instead of creating a new one
     setCards((prev) =>
-      prev.map((c) =>
-        c.id === id
-          ? {
-              ...c,
-              status: "processing",
-              resultMarkdown: undefined,
-              error: undefined,
-              usage: undefined,
-              usageTotal: undefined,
-              createdAt: Date.now(),
-            }
-          : c,
-      ),
+      updateById(prev, id, {
+        status: "processing",
+        resultMarkdown: undefined,
+        error: undefined,
+        usage: undefined,
+        usageTotal: undefined,
+        createdAt: Date.now(),
+      }),
     );
     try {
       await runOcrStream(
@@ -486,9 +379,7 @@ export default function Home() {
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Unknown error";
       setCards((prev) =>
-        prev.map((c) =>
-          c.id === id ? { ...c, status: "failed", error: message } : c,
-        ),
+        updateById(prev, id, { status: "failed", error: message }),
       );
       // Note: intentionally no toast here to preserve previous behavior.
     }
@@ -498,14 +389,17 @@ export default function Home() {
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
-      showToast("Copied to clipboard", "success");
+      addToast("Copied to clipboard", "success");
     } catch {
-      showToast("Failed to copy", "destructive");
+      addToast("Failed to copy", "destructive");
     }
   };
 
   // Derived for dialog usage without non-null assertions
-  const eid = expandedId ?? "";
+  const selectedCard = useMemo(
+    () => cards.find((c) => c.id === (expandedId ?? "")),
+    [cards, expandedId],
+  );
 
   return (
     <div className="min-h-dvh w-full p-6 md:p-10">
@@ -528,7 +422,7 @@ export default function Home() {
               },
               [],
             )}
-            onToast={(msg, variant) => showToast(msg, variant)}
+            onToast={(msg, variant) => addToast(msg, variant)}
           />
         </div>
         {/* Left: Inputs */}
@@ -589,7 +483,7 @@ export default function Home() {
             {cards.map((card) => (
               <RequestCard
                 key={card.id}
-                card={card as RequestCardType}
+                card={card}
                 raw={!!rawViewById[card.id]}
                 onToggleRaw={() =>
                   setRawViewById((m) => ({ ...m, [card.id]: !m[card.id] }))
@@ -614,13 +508,14 @@ export default function Home() {
         onOpenChange={(open) => {
           if (!open) setExpandedId(null);
         }}
-        markdown={cards.find((c) => c.id === eid)?.resultMarkdown}
-        files={cards.find((c) => c.id === eid)?.files}
-        raw={!!rawViewById[eid]}
+        markdown={selectedCard?.resultMarkdown}
+        files={selectedCard?.files}
+        raw={!!(expandedId && rawViewById[expandedId])}
         onToggleRaw={() =>
+          expandedId &&
           setRawViewById((m) => ({
             ...m,
-            [eid]: !m[eid],
+            [expandedId]: !m[expandedId],
           }))
         }
         onCopy={(text) => copy(text)}

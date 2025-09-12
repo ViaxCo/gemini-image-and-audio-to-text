@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useLocalStorageString } from "@/hooks/use-local-storage";
+import { STORAGE_KEYS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -19,59 +21,30 @@ type Props = {
   ) => void;
 };
 
-const STORAGE_KEY = "gemini_api_key";
-
 export function ApiKeyBar({
   className,
   onKeyChange,
   onStatusChange,
   onToast,
 }: Props) {
-  const [key, setKey] = useState<string>("");
   const [masked, setMasked] = useState(true);
-  const [saved, setSaved] = useState<string>("");
+  const {
+    value: key,
+    setValue: setKey,
+    saved,
+    isDirty,
+    save,
+    clear,
+  } = useLocalStorageString(STORAGE_KEYS.GEMINI_API_KEY);
 
+  // Announce state to parent consistently
   useEffect(() => {
-    try {
-      const savedKey = localStorage.getItem(STORAGE_KEY) || "";
-      setKey(savedKey);
-      setSaved(savedKey);
-      onKeyChange?.(!!savedKey);
-      onStatusChange?.({ savedPresent: !!savedKey, draftPresent: !!savedKey });
-    } catch {
-      // ignore
-    }
-  }, [onKeyChange, onStatusChange]);
+    onKeyChange?.(!!saved);
+    // For initial load, treat draft as whatever input shows
+    onStatusChange?.({ savedPresent: !!saved, draftPresent: !!key.trim() });
+  }, [saved, key, onKeyChange, onStatusChange]);
 
-  const save = () => {
-    try {
-      const trimmed = key.trim();
-      if (!trimmed) return;
-      localStorage.setItem(STORAGE_KEY, trimmed);
-      setSaved(trimmed);
-      onKeyChange?.(true);
-      onStatusChange?.({ savedPresent: true, draftPresent: true });
-      onToast?.("API key saved", "success");
-    } catch {
-      // ignore
-    }
-  };
-
-  const clear = () => {
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-      setSaved("");
-      setKey("");
-      onKeyChange?.(false);
-      onStatusChange?.({ savedPresent: false, draftPresent: false });
-      onToast?.("API key cleared", "success");
-    } catch {
-      // ignore
-    }
-  };
-
-  const hasKey = key.trim().length > 0;
-  const isDirty = key.trim() !== saved.trim();
+  const hasKey = useMemo(() => key.trim().length > 0, [key]);
 
   return (
     <div className={cn("rounded-md border p-3", className)}>
@@ -115,7 +88,14 @@ export function ApiKeyBar({
           <Button
             variant="secondary"
             type="button"
-            onClick={save}
+            onClick={() => {
+              const ok = save();
+              if (ok) {
+                onKeyChange?.(true);
+                onStatusChange?.({ savedPresent: true, draftPresent: true });
+                onToast?.("API key saved", "success");
+              }
+            }}
             disabled={!hasKey}
           >
             Save
@@ -123,7 +103,14 @@ export function ApiKeyBar({
           <Button
             type="button"
             variant="outline"
-            onClick={clear}
+            onClick={() => {
+              const ok = clear();
+              if (ok) {
+                onKeyChange?.(false);
+                onStatusChange?.({ savedPresent: false, draftPresent: false });
+                onToast?.("API key cleared", "success");
+              }
+            }}
             disabled={!saved}
           >
             Clear

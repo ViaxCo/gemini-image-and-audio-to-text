@@ -11,32 +11,8 @@ import {
   CardTitle,
   Card as UICard,
 } from "@/components/ui/card";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { ScrollArea } from "@/components/ui/scroll-area";
-
-export type Usage = {
-  inputTokens?: number;
-  outputTokens?: number;
-  totalTokens?: number;
-  reasoningTokens?: number;
-};
-
-export type Card = {
-  id: string;
-  prompt: string;
-  files: { name: string; size: number; type: string }[];
-  filesBlob?: { file: File }[];
-  status: "processing" | "complete" | "failed";
-  resultMarkdown?: string;
-  error?: string;
-  createdAt: number;
-  usage?: Usage;
-  usageTotal?: number;
-};
+import type { Card } from "@/types";
 
 export function RequestCard(props: {
   card: Card;
@@ -179,38 +155,33 @@ export function RequestCard(props: {
               );
             })()}
             {card.files.length > 2 && (
-              <Collapsible open={filesOpen} onOpenChange={setFilesOpen}>
-                <CollapsibleTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2"
-                    aria-expanded={filesOpen}
-                    aria-controls={`files-${card.id}`}
-                    title="Show all files"
-                  >
-                    +{card.files.length - 2} more
-                  </Button>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <div id={`files-${card.id}`} className="mt-2">
-                    <ScrollArea className="max-h-28 rounded border">
-                      <div className="p-2 flex flex-wrap gap-1">
-                        {card.files.map((f) => (
-                          <Badge
-                            key={`full-${f.name}`}
-                            variant="secondary"
-                            title={f.name}
-                            className="max-w-[14rem] truncate"
-                          >
-                            {f.name}
-                          </Badge>
-                        ))}
-                      </div>
-                    </ScrollArea>
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
+              <details
+                open={filesOpen}
+                onToggle={(e) =>
+                  setFilesOpen((e.target as HTMLDetailsElement).open)
+                }
+                className="ml-1"
+              >
+                <summary className="list-none cursor-pointer text-xs px-2 py-1 rounded hover:bg-accent inline-flex items-center">
+                  +{card.files.length - 2} more
+                </summary>
+                <div id={`files-${card.id}`} className="mt-2">
+                  <ScrollArea className="max-h-28 rounded border">
+                    <div className="p-2 flex flex-wrap gap-1">
+                      {card.files.map((f) => (
+                        <Badge
+                          key={`full-${f.name}`}
+                          variant="secondary"
+                          title={f.name}
+                          className="max-w-[14rem] truncate"
+                        >
+                          {f.name}
+                        </Badge>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </div>
+              </details>
             )}
             <span className="text-xs text-muted-foreground ml-auto">
               {card.files.length} file{card.files.length === 1 ? "" : "s"}
