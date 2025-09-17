@@ -21,6 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { extractPageMarkers } from "@/lib/page-markers";
 import { cn } from "@/lib/utils";
 import type { Card, SubRequest } from "@/types";
 
@@ -98,6 +99,28 @@ export function RequestCard(props: RequestCardProps) {
     typeof tokensDisplay === "number"
       ? tokensDisplay.toLocaleString()
       : tokensDisplay;
+
+  const pageInfo = useMemo(() => {
+    if (card.mode === "audio") {
+      return null;
+    }
+    const trimmed = displayText.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const info = extractPageMarkers(trimmed);
+    return info.count > 0 ? info : null;
+  }, [card.mode, displayText]);
+
+  const pageBadgeTitle = useMemo(() => {
+    if (!pageInfo) {
+      return undefined;
+    }
+    const maxPreview = 20;
+    const preview = pageInfo.pages.slice(0, maxPreview).join(", ");
+    const suffix = pageInfo.pages.length > maxPreview ? ", …" : "";
+    return `Pages detected: ${preview}${suffix}`;
+  }, [pageInfo]);
 
   const subRequestStats = useMemo(() => {
     if (!card.subRequests?.length) {
@@ -199,6 +222,16 @@ export function RequestCard(props: RequestCardProps) {
             {new Date(card.createdAt).toLocaleString()}
           </CardTitle>
           <div className="flex items-center gap-2 shrink-0">
+            {pageInfo ? (
+              <Badge
+                variant="outline"
+                className="px-2 py-0.5 text-[11px] uppercase tracking-wide"
+                title={pageBadgeTitle}
+                aria-label={pageBadgeTitle}
+              >
+                Pages: {pageInfo.count}
+              </Badge>
+            ) : null}
             <span
               className="inline-flex items-center rounded border px-2 py-0.5 text-[11px] leading-none text-muted-foreground"
               title={tokensTitle}
