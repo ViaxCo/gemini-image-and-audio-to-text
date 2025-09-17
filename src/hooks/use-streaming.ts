@@ -1,39 +1,46 @@
 "use client";
 
+import type { MutableRefObject } from "react";
 import type { FileItem } from "@/components/file-picker";
 import { useStreamRunner } from "@/hooks/use-stream-runner";
 import { useSubmitActions } from "@/hooks/use-submit-actions";
-import { buildFormData } from "@/lib/stream-utils";
 import type { Card } from "@/types";
 
 export function useStreaming(opts: {
   mode: "image" | "audio";
   prompt: string;
   files: FileItem[];
+  cards: Card[];
   setCards: React.Dispatch<React.SetStateAction<Card[]>>;
-  controllersRef: React.MutableRefObject<
-    Record<string, AbortController | undefined>
-  >;
+  controllersRef: MutableRefObject<Record<string, AbortController | undefined>>;
   clearAllFiles: () => void;
   addToast: (m: string, v: "success" | "warning" | "destructive") => void;
 }) {
-  const { runOcrStream } = useStreamRunner({
-    setCards: opts.setCards,
+  const { createStreamRunner } = useStreamRunner({
     controllersRef: opts.controllersRef,
     addToast: opts.addToast,
   });
 
-  const { submit, retry, copy } = useSubmitActions({
-    mode: opts.mode,
-    prompt: opts.prompt,
-    files: opts.files,
-    setCards: opts.setCards,
-    clearAllFiles: opts.clearAllFiles,
-    addToast: opts.addToast,
-    runOcrStream,
-  });
+  const { submit, retry, retrySubRequest, cancelCard, copy } = useSubmitActions(
+    {
+      mode: opts.mode,
+      prompt: opts.prompt,
+      files: opts.files,
+      cards: opts.cards,
+      setCards: opts.setCards,
+      controllersRef: opts.controllersRef,
+      clearAllFiles: opts.clearAllFiles,
+      addToast: opts.addToast,
+      createStreamRunner,
+    },
+  );
 
-  return { submit, retry, copy, runOcrStream } as const;
+  return {
+    submit,
+    retry,
+    retrySubRequest,
+    cancelCard,
+    copy,
+    createStreamRunner,
+  } as const;
 }
-
-export const StreamingHelpers = { buildFormData };

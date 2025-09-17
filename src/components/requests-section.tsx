@@ -12,6 +12,7 @@ export function RequestsSection(props: {
   onExpand: (id: string) => void;
   onCancel: (id: string) => void;
   onRetry: (card: Card) => void;
+  onRetrySubRequest?: (cardId: string, subRequestId: string) => void;
   onClearAll: () => void;
 }) {
   const {
@@ -22,6 +23,7 @@ export function RequestsSection(props: {
     onExpand,
     onCancel,
     onRetry,
+    onRetrySubRequest,
     onClearAll,
   } = props;
 
@@ -54,6 +56,7 @@ export function RequestsSection(props: {
             onExpand={onExpand}
             onCancel={onCancel}
             onRetry={onRetry}
+            onRetrySubRequest={onRetrySubRequest}
           />
         ))}
       </div>

@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { batchConfig as defaultBatchConfig } from "@/config/batch";
 import { mirrorFileListToInput } from "@/lib/dom";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +24,7 @@ export function FilePicker(props: {
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const config = defaultBatchConfig;
 
   // When the parent clears all files (e.g., after Submit), also reset
   // the hidden native input so selecting the same files fires `change` again.
@@ -35,6 +38,12 @@ export function FilePicker(props: {
 
   const mode = props.mode ?? "image";
   const isAudio = mode === "audio";
+  const totalFiles = props.files.length;
+  const plannedRequests = isAudio
+    ? totalFiles
+    : totalFiles > 0
+      ? Math.max(1, Math.ceil(totalFiles / config.maxFilesPerRequest))
+      : 0;
 
   return (
     <section className="space-y-4">
@@ -103,45 +112,62 @@ export function FilePicker(props: {
         </div>
       </section>
 
-      {props.files.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-6">
-            <div className="text-sm font-medium">Selected files</div>
-            <div className="flex items-center flex-wrap gap-2 text-xs">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  props.clearAllFiles();
-                  if (inputRef.current) {
-                    inputRef.current.value = "";
-                    mirrorFileListToInput(inputRef.current, null);
-                  }
-                }}
-              >
-                Clear all
-              </Button>
+      {totalFiles > 0 && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="text-sm font-medium">Selected files</div>
+              {!isAudio ? (
+                <p className="text-xs text-muted-foreground">
+                  {totalFiles.toLocaleString()} file
+                  {totalFiles === 1 ? "" : "s"}
+                  {" • "}
+                  {plannedRequests.toLocaleString()} request
+                  {plannedRequests === 1 ? "" : "s"} planned
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  {Math.min(totalFiles, 10).toLocaleString()} audio file
+                  {totalFiles === 1 ? "" : "s"}
+                </p>
+              )}
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                props.clearAllFiles();
+                if (inputRef.current) {
+                  inputRef.current.value = "";
+                  mirrorFileListToInput(inputRef.current, null);
+                }
+              }}
+            >
+              Clear all
+            </Button>
           </div>
-          {/* Always render compact view */}
-          <div className="flex flex-wrap gap-2">
-            {props.files.map((item, idx) => (
-              <div
-                key={`${item.file.name}-${item.file.size}-${item.file.lastModified}-${idx}`}
-                className="border rounded px-2 py-1 text-xs flex items-center gap-2"
-              >
-                <span className="max-w-40 truncate">{item.file.name}</span>
-                <button
-                  type="button"
-                  className="opacity-70 hover:opacity-100"
-                  onClick={() => props.removeFile(idx)}
-                  aria-label="Remove"
+          <ScrollArea className="h-48 sm:h-64 w-full rounded border">
+            <div className="flex flex-wrap gap-2 p-2 pr-4">
+              {props.files.map((item, idx) => (
+                <div
+                  key={`${item.file.name}-${item.file.size}-${item.file.lastModified}-${idx}`}
+                  className="border rounded px-2 py-1 text-xs flex items-center gap-2 bg-background/80"
                 >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
+                  <span className="max-w-40 truncate" title={item.file.name}>
+                    {item.file.name}
+                  </span>
+                  <button
+                    type="button"
+                    className="opacity-70 hover:opacity-100"
+                    onClick={() => props.removeFile(idx)}
+                    aria-label={`Remove ${item.file.name}`}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
         </div>
       )}
     </section>

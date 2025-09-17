@@ -11,17 +11,34 @@ import {
   DialogContent,
   DialogTitle,
 } from "@/components/ui/dialog";
+import type { Card } from "@/types";
 
-export function ResultDialog(props: {
+type ResultDialogProps = {
   openId: string | null;
   onOpenChange: (open: boolean) => void;
-  text?: string;
   raw: boolean;
   onToggleRaw: () => void;
   onCopy: (text?: string) => void;
+  card?: Card | null;
+  text?: string;
   files?: { name: string }[];
   audioFile?: File | null;
-}) {
+};
+
+export function ResultDialog(props: ResultDialogProps) {
+  const card = props.card ?? null;
+  const displayText =
+    card?.combinedText ?? card?.resultText ?? props.text ?? "";
+  const totalFiles =
+    card?.totalFiles ?? card?.files.length ?? props.files?.length ?? 0;
+  const totalRequests = card?.subRequests?.length ?? (displayText ? 1 : 0);
+  const completedRequests = card?.subRequests
+    ? card.subRequests.filter((sub) => sub.status === "complete").length
+    : card?.status === "complete"
+      ? 1
+      : 0;
+  const pendingRetries = card?.pendingRetryCount ?? 0;
+
   return (
     <Dialog open={Boolean(props.openId)} onOpenChange={props.onOpenChange}>
       {props.openId ? (
@@ -35,13 +52,16 @@ export function ResultDialog(props: {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => props.onCopy(props.text)}
+                onClick={() => props.onCopy(displayText)}
+                disabled={!displayText}
               >
                 Copy
               </Button>
               <DownloadMenu
-                text={props.text}
-                suggestedBaseName={props.files?.[0]?.name}
+                text={displayText}
+                suggestedBaseName={
+                  card?.files?.[0]?.name ?? props.files?.[0]?.name
+                }
                 variant="outline"
                 size="sm"
               />
@@ -50,7 +70,42 @@ export function ResultDialog(props: {
               </DialogClose>
             </div>
           </div>
-          <div className="p-4 overflow-auto max-h-[70vh] space-y-3">
+          <div className="p-4 overflow-auto max-h-[70vh] space-y-4">
+            {card ? (
+              <ul className="grid gap-1 text-xs sm:text-sm text-muted-foreground">
+                <li className="flex items-center justify-between gap-2">
+                  <span>Total files</span>
+                  <span className="font-medium text-foreground">
+                    {totalFiles.toLocaleString()}
+                  </span>
+                </li>
+                {totalRequests ? (
+                  <li className="flex items-center justify-between gap-2">
+                    <span>Requests launched</span>
+                    <span className="font-medium text-foreground">
+                      {totalRequests.toLocaleString()}
+                    </span>
+                  </li>
+                ) : null}
+                {totalRequests ? (
+                  <li className="flex items-center justify-between gap-2">
+                    <span>Completed</span>
+                    <span className="font-medium text-foreground">
+                      {completedRequests.toLocaleString()}
+                    </span>
+                  </li>
+                ) : null}
+                {pendingRetries ? (
+                  <li className="flex items-center justify-between gap-2">
+                    <span>Retries pending</span>
+                    <span className="font-medium text-foreground">
+                      {pendingRetries.toLocaleString()}
+                    </span>
+                  </li>
+                ) : null}
+              </ul>
+            ) : null}
+
             {props.audioFile ? (
               <div>
                 <AudioPlayer file={props.audioFile} />
@@ -63,11 +118,13 @@ export function ResultDialog(props: {
               </Button>
             </div>
             {props.raw ? (
-              <pre className="whitespace-pre-wrap text-sm">{props.text}</pre>
+              <pre className="whitespace-pre-wrap text-sm max-h-[45vh] overflow-auto">
+                {displayText}
+              </pre>
             ) : (
-              <div className="text-sm">
+              <div className="text-sm max-h-[45vh] overflow-auto border rounded p-3">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {props.text || ""}
+                  {displayText || ""}
                 </ReactMarkdown>
               </div>
             )}

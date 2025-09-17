@@ -41,10 +41,11 @@ export default function Home() {
   } = useCards();
 
   // Streaming actions
-  const { submit, retry, copy } = useStreaming({
+  const { submit, retry, retrySubRequest, cancelCard, copy } = useStreaming({
     mode,
     prompt,
     files,
+    cards,
     setCards,
     controllersRef,
     clearAllFiles,
@@ -131,11 +132,11 @@ export default function Home() {
           onCopy={copy}
           onExpand={(id) => setExpandedId(id)}
           onCancel={(id) => {
-            try {
-              controllersRef.current[id]?.abort();
-            } catch {}
+            const card = cards.find((c) => c.id === id);
+            if (card) cancelCard(card);
           }}
           onRetry={retry}
+          onRetrySubRequest={retrySubRequest}
           onClearAll={clearAllRequests}
         />
       </div>
@@ -157,6 +158,7 @@ export default function Home() {
         onOpenChange={(open) => {
           if (!open) setExpandedId(null);
         }}
+        card={selectedCard}
         text={selectedCard?.resultText}
         files={selectedCard?.files}
         audioFile={

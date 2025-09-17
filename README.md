@@ -8,7 +8,9 @@ Image → Text OCR and Audio → Text in the browser using Google Gemini and the
 
 - Streaming OCR/transcription via `ai` + `@ai-sdk/google` on `gemini-2.5-flash`.
 - BYOK in the browser: key stored in `localStorage` (never sent to a server).
-- Image mode: multiple JPEG/PNG files (≤ 10 MB each), combined in one request.
+- Image mode: JPEG/PNG files (≤ 10 MB each) with automatic batching (10 files per request by default).
+- Large batches stream back in original order using capped request waves (configurable via `src/config/batch.ts`).
+- Failed or canceled sub-requests stay in-place with inline placeholders and keep any partial text until you retry.
 - Audio mode: up to 10 files (≤ 20 MB each), each processed concurrently.
 - Token usage panel (input/output/total/reasoning) when the provider returns it.
 - Markdown preview or raw view; copy, expand dialog, retry, cancel in‑flight.
@@ -85,14 +87,31 @@ Security tips
 
 4) Submit and monitor
 
-- Streaming text appears in a request card. View as Preview (Markdown‑rendered)
-  or Raw. Cancel, Retry, Copy, Expand, or Download as `.md`/`.docx`.
+- Streaming text appears in a request card. View as Preview (Markdown-rendered)
+  or Raw. Large image batches display a per-request table with statuses,
+  countdowns between waves, and one-click retries. Cancel, Retry, Copy, Expand,
+  or Download as `.md`/`.docx`.
+
+--------------------------------------------------------------------------------
+
+## Batch Processing & Configuration
+
+- Image submissions exceeding the per-request cap are partitioned into waves.
+- Defaults live in `src/config/batch.ts` and can be overridden via environment
+  variables (`NEXT_PUBLIC_MAX_FILES_PER_REQUEST`,
+  `NEXT_PUBLIC_MAX_REQUESTS_PER_MINUTE`).
+- `REQUEST_WAVE_COOLDOWN_MS` is derived from the request rate to throttle the
+  next wave; each card shows the countdown for transparency.
+- Sub-requests stream back in original file order. Completed chunks are stitched
+  into the combined output while failed chunks expose dedicated retry controls.
 
 --------------------------------------------------------------------------------
 
 ## Limits and Formats
 
 - Images: `image/jpeg`, `image/png`, ≤ 10 MB per file.
+- Batching defaults: 10 images per request, 10 request waves per minute (tunable
+  via `NEXT_PUBLIC_MAX_FILES_PER_REQUEST` / `NEXT_PUBLIC_MAX_REQUESTS_PER_MINUTE`).
 - Audio: MP3, M4A, WAV, AAC, OGG, FLAC, AIFF/AIF, ≤ 20 MB per file, ≤ 10 files per submission.
 - Large audio: compress or trim before uploading (inline upload limit).
 
@@ -115,10 +134,14 @@ Security tips
   - Uses hooks to manage mode, files, toasts, and streaming.
 
 - Submit flow
-  - `use-submit-actions` creates a card, builds a `FormData` with prompt/files,
-    and calls `use-stream-runner`.
-  - `use-stream-runner` uses `createGoogleGenerativeAI` + `streamText` to call
-    `gemini-2.5-flash` from the browser and incrementally append text.
+  - `use-submit-actions` now chunks large image submissions, manages a
+    configurable wave scheduler, and dispatches sub-requests while preserving
+    order. Partial chunks are buffered so early deltas survive even if the
+    provider errors mid-stream, and the UI marks missing sections inline until
+    you retry them.
+  - `use-stream-runner` emits lifecycle callbacks (`onStart`, `onChunk`,
+    `onFinish`, `onError`, `onAbort`) that the scheduler uses to update
+    sub-request status, aggregate usage, and stitch contiguous text.
   - Usage is normalized from either `totalUsage` or
     `response.providerMetadata.google.usageMetadata`.
 
@@ -126,6 +149,9 @@ Security tips
   - Shows filenames (with an expandable list for many images), status, token
     breakdown, Markdown preview, copy/expand/download actions, and Retry.
   - Audio requests render an inline custom audio player for the original file.
+  - Batch requests add a scrollable sub-request table with status badges,
+    wave countdowns, and per-chunk retry controls while keeping the combined
+    preview contiguous.
 
 - Downloads: `src/components/download-menu.tsx`
   - Markdown: saved as `.md` directly.

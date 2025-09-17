@@ -53,6 +53,11 @@ This repo is a Next.js 15 (App Router) app that performs Image → Text OCR and 
   - Route: `POST /api/ocr` accepts `form-data` with `prompt` and one or more `files` (JPEG/PNG).
   - Server streams responses using AI SDK data stream protocol; client parses SSE `data:` lines.
   - Emit usage metadata; render token counts when available.
+  - `use-submit-actions` chunks oversized image batches according to
+    `src/config/batch.ts` (defaults: 10 files/request, 10 requests/minute) and
+    schedules sub-requests with cooldowns so streaming order matches uploads.
+    Stream deltas are buffered per sub-request; partial results surface with
+    placeholder notices when a chunk fails and remain available for retries.
 - Error handling:
   - Validate files on the client (type + size) and handle empty results.
   - On server, return structured JSON errors with appropriate status codes.
@@ -90,6 +95,8 @@ This repo is a Next.js 15 (App Router) app that performs Image → Text OCR and 
 
 - Required: `.env.local` with `GOOGLE_GENERATIVE_AI_API_KEY`.
 - Client uploads are limited to JPEG/PNG; UI enforces ≤10 MB per file.
+- Optional overrides: `NEXT_PUBLIC_MAX_FILES_PER_REQUEST` and
+  `NEXT_PUBLIC_MAX_REQUESTS_PER_MINUTE` (see `src/config/batch.ts`).
 
 ## Review Checklist
 
