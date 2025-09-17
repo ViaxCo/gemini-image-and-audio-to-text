@@ -10,6 +10,7 @@
 - Always run `npm run pretest` after changes.
 - Never start the dev server.
 - Always implement simple code that is easy to read, understand and maintain.
+- If a file gets too large, split it up into smaller pieces.
 
 ---
 
