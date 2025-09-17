@@ -73,33 +73,6 @@ export function RequestCard(props: RequestCardProps) {
     return () => window.clearInterval(id);
   }, [card.nextWaveEta]);
 
-  const tokensTitle = card.usage
-    ? `Input: ${card.usage.inputTokens ?? "?"} • Output: ${
-        card.usage.outputTokens ?? "?"
-      } • Total: ${card.usage.totalTokens ?? "?"}`
-    : card.status === "complete"
-      ? "Provider did not return usage"
-      : "Token usage available on finish";
-
-  const fmt = (n?: number) =>
-    typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() : "—";
-
-  const tokensDisplay =
-    card.usage?.totalTokens ??
-    card.usageTotal ??
-    (card.usage?.inputTokens !== undefined &&
-    card.usage?.outputTokens !== undefined
-      ? card.usage.inputTokens + card.usage.outputTokens
-      : undefined) ??
-    card.usage?.outputTokens ??
-    card.usage?.inputTokens ??
-    (card.status === "complete" ? "—" : "…");
-
-  const tokensDisplayStr =
-    typeof tokensDisplay === "number"
-      ? tokensDisplay.toLocaleString()
-      : tokensDisplay;
-
   const pageInfo = useMemo(() => {
     if (card.mode === "audio") {
       return null;
@@ -232,12 +205,6 @@ export function RequestCard(props: RequestCardProps) {
                 Pages: {pageInfo.count}
               </Badge>
             ) : null}
-            <span
-              className="inline-flex items-center rounded border px-2 py-0.5 text-[11px] leading-none text-muted-foreground"
-              title={tokensTitle}
-            >
-              Tokens {tokensDisplayStr}
-            </span>
             <div
               className={cn(
                 "text-xs uppercase tracking-wide",
@@ -277,44 +244,6 @@ export function RequestCard(props: RequestCardProps) {
                 {card.pendingRetryCount > 1 ? "" : ""} pending
               </Badge>
             ) : null}
-          </div>
-        ) : null}
-
-        {card.status !== "processing" ? (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[11px] sm:text-xs">
-            <div className="flex items-center justify-between rounded border px-2 py-1 text-muted-foreground">
-              <span className="opacity-70">Input</span>
-              <span className="tabular-nums">
-                {fmt(card.usage?.inputTokens)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between rounded border px-2 py-1 text-muted-foreground">
-              <span className="opacity-70">Output</span>
-              <span className="tabular-nums">
-                {fmt(card.usage?.outputTokens)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between rounded border px-2 py-1 text-muted-foreground">
-              <span className="opacity-70">Reason</span>
-              <span className="tabular-nums">
-                {fmt(card.usage?.reasoningTokens)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between rounded border px-2 py-1">
-              <span className="opacity-70">Total</span>
-              <span className="tabular-nums font-medium">
-                {(() => {
-                  const total =
-                    card.usage?.totalTokens ??
-                    card.usageTotal ??
-                    (card.usage?.inputTokens !== undefined &&
-                    card.usage?.outputTokens !== undefined
-                      ? card.usage.inputTokens + card.usage.outputTokens
-                      : undefined);
-                  return fmt(total);
-                })()}
-              </span>
-            </div>
           </div>
         ) : null}
       </CardHeader>
