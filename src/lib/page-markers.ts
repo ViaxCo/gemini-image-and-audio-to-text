@@ -1,6 +1,6 @@
 /**
  * Extracts unique page markers from the provided text.
- * Assumes markers follow the pattern "Page <number>" with optional punctuation
+ * Assumes markers follow the pattern "**Page <number>**" with optional punctuation
  * immediately after the keyword. Returns normalized results in ascending order.
  */
 export function extractPageMarkers(text: string): {
@@ -11,7 +11,7 @@ export function extractPageMarkers(text: string): {
     return { count: 0, pages: [] };
   }
 
-  const pattern = /\bPage\s*(?:[#.:-]?\s*)?(\d{1,5})\b/gi;
+  const pattern = /\*\*Page\s*(?:[#.:-]?\s*)?(\d{1,5})\*\*/gi;
   const unique = new Set<number>();
   let match: RegExpExecArray | null = pattern.exec(text);
 
