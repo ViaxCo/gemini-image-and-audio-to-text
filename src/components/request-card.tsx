@@ -128,6 +128,8 @@ export function RequestCard(props: RequestCardProps) {
     };
   }, [card.subRequests]);
 
+  const batchProgressSummary = `Completed ${subRequestStats.completed} of ${subRequestStats.total} requests. ${subRequestStats.running} running. ${subRequestStats.queued} queued.`;
+
   const renderFilesSummary = () => {
     if (card.files.length === 0) return null;
     if (card.mode === "audio") {
@@ -232,6 +234,8 @@ export function RequestCard(props: RequestCardProps) {
             <span>
               {subRequestStats.completed}/{subRequestStats.total} complete
             </span>
+            <span>{subRequestStats.running} running</span>
+            <span>{subRequestStats.queued} queued</span>
             {waveCountdown !== null ? (
               <span aria-live="polite">Next wave in {waveCountdown}s</span>
             ) : null}
@@ -268,8 +272,7 @@ export function RequestCard(props: RequestCardProps) {
         {isBatch && card.subRequests?.length ? (
           <section className="space-y-2" aria-label="Batch progress">
             <div className="sr-only" aria-live="polite">
-              Completed {subRequestStats.completed} of {subRequestStats.total}{" "}
-              requests.
+              {batchProgressSummary}
             </div>
             <ScrollArea className="h-52 sm:h-64 w-full rounded border">
               <div className="min-w-[28rem]">
