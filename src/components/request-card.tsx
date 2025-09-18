@@ -197,16 +197,6 @@ export function RequestCard(props: RequestCardProps) {
             {new Date(card.createdAt).toLocaleString()}
           </CardTitle>
           <div className="flex items-center gap-2 shrink-0">
-            {pageInfo ? (
-              <Badge
-                variant="outline"
-                className="px-2 py-0.5 text-[11px] uppercase tracking-wide"
-                title={pageBadgeTitle}
-                aria-label={pageBadgeTitle}
-              >
-                Pages: {pageInfo.count}
-              </Badge>
-            ) : null}
             <div
               className={cn(
                 "text-xs uppercase tracking-wide",
@@ -256,10 +246,22 @@ export function RequestCard(props: RequestCardProps) {
         <div className="flex flex-wrap items-center gap-1 min-w-0">
           {renderFilesSummary()}
           {card.mode !== "audio" ? (
-            <span className="ml-auto text-xs text-muted-foreground">
-              {(card.totalFiles ?? card.files.length).toLocaleString()} file
-              {(card.totalFiles ?? card.files.length) === 1 ? "" : "s"}
-            </span>
+            <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
+              <span>
+                {(card.totalFiles ?? card.files.length).toLocaleString()} file
+                {(card.totalFiles ?? card.files.length) === 1 ? "" : "s"}
+              </span>
+              {pageInfo ? (
+                <Badge
+                  variant="outline"
+                  className="px-2 py-0.5 text-[11px] uppercase tracking-wide"
+                  title={pageBadgeTitle}
+                  aria-label={pageBadgeTitle}
+                >
+                  Pages: {pageInfo.count}
+                </Badge>
+              ) : null}
+            </div>
           ) : null}
         </div>
 
