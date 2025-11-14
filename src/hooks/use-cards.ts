@@ -23,6 +23,25 @@ export function useCards() {
     setRawViewById({});
   }, []);
 
+  const removeCard = useCallback(
+    (id: string) => {
+      setCards((prev) => prev.filter((c) => c.id !== id));
+      if (expandedId === id) setExpandedId(null);
+      setRawViewById((prev) => {
+        const newRaw = { ...prev };
+        delete newRaw[id];
+        return newRaw;
+      });
+      if (controllersRef.current[id]) {
+        try {
+          controllersRef.current[id]?.abort();
+        } catch {}
+        delete controllersRef.current[id];
+      }
+    },
+    [expandedId],
+  );
+
   const selectedCard = useMemo(
     () => cards.find((c) => c.id === (expandedId ?? "")),
     [cards, expandedId],
@@ -37,6 +56,7 @@ export function useCards() {
     setRawViewById,
     controllersRef,
     clearAllRequests,
+    removeCard,
     selectedCard,
   } as const;
 }

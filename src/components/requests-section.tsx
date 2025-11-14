@@ -14,6 +14,7 @@ export function RequestsSection(props: {
   onRetry: (card: Card) => void;
   onRetrySubRequest?: (cardId: string, subRequestId: string) => void;
   onClearAll: () => void;
+  onClose: (id: string) => void;
 }) {
   const {
     cards,
@@ -25,6 +26,7 @@ export function RequestsSection(props: {
     onRetry,
     onRetrySubRequest,
     onClearAll,
+    onClose,
   } = props;
 
   return (
@@ -57,6 +59,7 @@ export function RequestsSection(props: {
             onCancel={onCancel}
             onRetry={onRetry}
             onRetrySubRequest={onRetrySubRequest}
+            onClose={onClose}
           />
         ))}
       </div>

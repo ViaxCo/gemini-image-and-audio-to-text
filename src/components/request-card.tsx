@@ -1,4 +1,5 @@
 "use client";
+import { X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -34,6 +35,7 @@ type RequestCardProps = {
   onCancel: (id: string) => void;
   onRetry: (card: Card) => void;
   onRetrySubRequest?: (cardId: string, subRequestId: string) => void;
+  onClose: (id: string) => void;
 };
 
 const statusTone: Record<SubRequest["status"], string> = {
@@ -128,6 +130,34 @@ export function RequestCard(props: RequestCardProps) {
     };
   }, [card.subRequests]);
 
+  const canRetryDueToPageMismatch = useMemo(() => {
+    if (card.mode === "audio" || card.status !== "complete" || !pageInfo) {
+      return false;
+    }
+    const totalFiles = card.totalFiles ?? card.files.length;
+    return pageInfo.count !== totalFiles;
+  }, [card.mode, card.status, pageInfo, card.totalFiles, card.files.length]);
+
+  const hasPageMismatch = useMemo(() => {
+    if (card.mode === "audio" || !pageInfo) {
+      return false;
+    }
+    const totalFiles = card.totalFiles ?? card.files.length;
+    const isAllComplete =
+      card.status === "complete" &&
+      (!isBatch || subRequestStats.completed === subRequestStats.total);
+    return isAllComplete && pageInfo.count !== totalFiles;
+  }, [
+    card.mode,
+    card.status,
+    pageInfo,
+    card.totalFiles,
+    card.files.length,
+    isBatch,
+    subRequestStats.completed,
+    subRequestStats.total,
+  ]);
+
   const batchProgressSummary = `Completed ${subRequestStats.completed} of ${subRequestStats.total} requests. ${subRequestStats.running} running. ${subRequestStats.queued} queued.`;
 
   const renderFilesSummary = () => {
@@ -209,6 +239,15 @@ export function RequestCard(props: RequestCardProps) {
             >
               {card.status}
             </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => props.onClose(card.id)}
+              aria-label="Close card"
+              className="h-6 w-6 p-0"
+            >
+              <X className="h-4 w-4" />
+            </Button>
           </div>
         </div>
 
@@ -254,7 +293,10 @@ export function RequestCard(props: RequestCardProps) {
               {pageInfo ? (
                 <Badge
                   variant="outline"
-                  className="px-2 py-0.5 text-[11px] uppercase tracking-wide"
+                  className={cn(
+                    "px-2 py-0.5 text-[11px] uppercase tracking-wide",
+                    hasPageMismatch && "text-red-600 dark:text-red-400",
+                  )}
                   title={pageBadgeTitle}
                   aria-label={pageBadgeTitle}
                 >
@@ -297,8 +339,15 @@ export function RequestCard(props: RequestCardProps) {
                       const startedAt = sub.startedAt
                         ? new Date(sub.startedAt).toLocaleTimeString()
                         : "—";
+                      const pageInfoForSub = sub.resultText
+                        ? extractPageMarkers(sub.resultText)
+                        : null;
+                      const pageCount = pageInfoForSub?.count ?? 0;
                       const canRetry =
-                        sub.status === "failed" && Boolean(onRetrySubRequest);
+                        (sub.status === "failed" ||
+                          (sub.status === "complete" &&
+                            pageCount !== sub.fileCount)) &&
+                        Boolean(onRetrySubRequest);
                       return (
                         <TableRow key={sub.id} className="align-middle">
                           <TableCell className="font-medium text-xs sm:text-sm">
@@ -410,9 +459,11 @@ export function RequestCard(props: RequestCardProps) {
             variant="ghost"
             onClick={() => props.onRetry(card)}
             disabled={
-              isBatch
-                ? card.pendingRetryCount === 0 || subRequestStats.running > 0
-                : card.status === "processing"
+              canRetryDueToPageMismatch
+                ? false
+                : isBatch
+                  ? card.pendingRetryCount === 0 || subRequestStats.running > 0
+                  : card.status === "processing"
             }
           >
             Retry

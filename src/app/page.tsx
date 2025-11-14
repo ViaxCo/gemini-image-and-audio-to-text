@@ -37,6 +37,7 @@ export default function Home() {
     setRawViewById,
     controllersRef,
     clearAllRequests,
+    removeCard,
     selectedCard,
   } = useCards();
 
@@ -138,6 +139,7 @@ export default function Home() {
           onRetry={retry}
           onRetrySubRequest={retrySubRequest}
           onClearAll={clearAllRequests}
+          onClose={removeCard}
         />
       </div>
 
