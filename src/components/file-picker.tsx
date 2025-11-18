@@ -48,7 +48,7 @@ export function FilePicker(props: {
   return (
     <section className="space-y-4">
       <h1 className="text-xl font-semibold">
-        {isAudio ? "Audio → Text" : "Image → Text OCR"}
+        {isAudio ? "Audio → Text" : "Image/PDF → Text OCR"}
       </h1>
       <section
         onDragEnter={(e) => {
@@ -79,13 +79,15 @@ export function FilePicker(props: {
       >
         {isAudio
           ? "Drag & drop MP3/WAV/M4A/OGG/FLAC (≤ 20 MB each), or"
-          : "Drag & drop JPEG/PNG here, or"}
+          : "Drag & drop JPEG/PNG/PDF here, or"}
         <div className="mt-2 flex items-center gap-3">
           <Input
             id="file-input"
             ref={inputRef}
             type="file"
-            accept={isAudio ? "audio/*" : "image/jpeg,image/png"}
+            accept={
+              isAudio ? "audio/*" : "image/jpeg,image/png,application/pdf"
+            }
             className="sr-only w-px h-px"
             multiple
             onChange={(e) => {

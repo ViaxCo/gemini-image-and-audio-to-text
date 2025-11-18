@@ -53,6 +53,7 @@ export function getMediaType(file: File): string {
     jpg: "image/jpeg",
     jpeg: "image/jpeg",
     png: "image/png",
+    pdf: "application/pdf",
   };
   return map[ext] ?? "application/octet-stream";
 }

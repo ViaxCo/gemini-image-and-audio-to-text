@@ -57,12 +57,16 @@ export function useFiles(
       } else {
         const accepted = all.filter(
           (f) =>
-            /image\/(jpeg|jpg|png)/.test(f.type) && f.size <= 10 * 1024 * 1024,
+            (/image\/(jpeg|jpg|png)/.test(f.type) ||
+              f.type === "application/pdf") &&
+            f.size <= 10 * 1024 * 1024,
         );
         const rejected = all.filter((f) => !accepted.includes(f));
         const next: FileItem[] = accepted.map((f) => ({
           file: f,
-          previewUrl: URL.createObjectURL(f),
+          previewUrl: /image\/(jpeg|jpg|png)/.test(f.type)
+            ? URL.createObjectURL(f)
+            : undefined,
         }));
         setFiles((prev) => [...prev, ...next]);
         if (rejected.length)
