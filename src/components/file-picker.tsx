@@ -114,6 +114,13 @@ export function FilePicker(props: {
         </div>
       </section>
 
+      {!isAudio && (
+        <p className="text-xs text-muted-foreground">
+          Tip: For better OCR results and to avoid missing text, consider
+          converting images to PDF before uploading.
+        </p>
+      )}
+
       {totalFiles > 0 && (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-4">
