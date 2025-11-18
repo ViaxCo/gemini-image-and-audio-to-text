@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AudioPlayer } from "@/components/audio-player";
 import { DownloadMenu } from "@/components/download-menu";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -308,9 +309,20 @@ export function RequestCard(props: RequestCardProps) {
         </div>
 
         {card.error && card.status === "failed" ? (
-          <div className="text-sm text-destructive" aria-live="polite">
-            {card.error}
-          </div>
+          <Alert variant="destructive">
+            <AlertDescription aria-live="polite">{card.error}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        {hasPageMismatch ? (
+          <Alert className="border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            <AlertTitle>Page Count Mismatch</AlertTitle>
+            <AlertDescription>
+              Detected {pageInfo?.count} pages but expected{" "}
+              {card.totalFiles ?? card.files.length} based on the number of
+              files. You can retry this batch to get complete results.
+            </AlertDescription>
+          </Alert>
         ) : null}
 
         {isBatch && card.subRequests?.length ? (
