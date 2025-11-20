@@ -159,6 +159,23 @@ export function RequestCard(props: RequestCardProps) {
     subRequestStats.total,
   ]);
 
+  const incompleteSubRequestsCount = useMemo(() => {
+    if (!isBatch || !card.subRequests?.length) return 0;
+    let count = 0;
+    for (const sub of card.subRequests) {
+      if (sub.status === "complete") {
+        const pageInfoForSub = sub.resultText
+          ? extractPageMarkers(sub.resultText)
+          : null;
+        const pageCount = pageInfoForSub?.count ?? 0;
+        if (pageCount !== sub.fileCount) {
+          count += 1;
+        }
+      }
+    }
+    return count;
+  }, [isBatch, card.subRequests]);
+
   const batchProgressSummary = `Completed ${subRequestStats.completed} of ${subRequestStats.total} requests. ${subRequestStats.running} running. ${subRequestStats.queued} queued.`;
 
   const renderFilesSummary = () => {
@@ -314,13 +331,14 @@ export function RequestCard(props: RequestCardProps) {
           </Alert>
         ) : null}
 
-        {hasPageMismatch ? (
+        {incompleteSubRequestsCount > 0 && card.status !== "complete" ? (
           <Alert className="border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-            <AlertTitle>Page Count Mismatch</AlertTitle>
+            <AlertTitle>Incomplete Batches Detected</AlertTitle>
             <AlertDescription>
-              Detected {pageInfo?.count} pages but expected{" "}
-              {card.totalFiles ?? card.files.length} based on the number of
-              files. You can retry this batch to get complete results.
+              {incompleteSubRequestsCount} batch
+              {incompleteSubRequestsCount > 1 ? "es" : ""} completed but{" "}
+              {incompleteSubRequestsCount > 1 ? "are" : "is"} incomplete. You
+              can retry them individually to get complete results.
             </AlertDescription>
           </Alert>
         ) : null}
