@@ -13,6 +13,7 @@ export type SubRequest = {
   label: string;
   status: "queued" | "running" | "complete" | "failed" | "canceled";
   fileCount: number;
+  retryCount?: number;
   resultText?: string;
   error?: string;
   usage?: Usage;
@@ -30,6 +31,7 @@ export type Card = {
   resultText?: string;
   error?: string;
   createdAt: number;
+  retryCount?: number;
   usage?: Usage;
   // Extra guard: store a computed total for display reliability
   usageTotal?: number;

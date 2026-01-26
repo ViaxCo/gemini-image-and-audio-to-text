@@ -13,18 +13,26 @@ function envInt(key: string, fallback: number, guard: Guard) {
   return fallback;
 }
 
-export const MAX_FILES_PER_REQUEST = envInt("NEXT_PUBLIC_MAX_FILES_PER_REQUEST", 10, {
-  min: 1,
-  max: 100,
-});
+export const MAX_FILES_PER_REQUEST = envInt(
+  "NEXT_PUBLIC_MAX_FILES_PER_REQUEST",
+  10,
+  {
+    min: 1,
+    max: 100,
+  },
+);
 
-export const MAX_REQUESTS_PER_MINUTE = envInt("NEXT_PUBLIC_MAX_REQUESTS_PER_MINUTE", 5, {
-  min: 1,
-  max: 60,
-});
+export const MAX_REQUESTS_PER_MINUTE = envInt(
+  "NEXT_PUBLIC_MAX_REQUESTS_PER_MINUTE",
+  5,
+  {
+    min: 1,
+    max: 60,
+  },
+);
 
 export const REQUEST_WAVE_COOLDOWN_MS = Math.ceil(
-  60_000 / Math.max(MAX_REQUESTS_PER_MINUTE, 1)
+  60_000 / Math.max(MAX_REQUESTS_PER_MINUTE, 1),
 );
 
 export type BatchConfig = {
@@ -40,7 +48,7 @@ export const batchConfig: BatchConfig = {
 };
 
 export function withBatchOverrides(
-  overrides: Partial<Omit<BatchConfig, "requestWaveCooldownMs">> = {}
+  overrides: Partial<Omit<BatchConfig, "requestWaveCooldownMs">> = {},
 ): BatchConfig {
   const maxFiles = overrides.maxFilesPerRequest ?? MAX_FILES_PER_REQUEST;
   const maxRate = overrides.maxRequestsPerMinute ?? MAX_REQUESTS_PER_MINUTE;

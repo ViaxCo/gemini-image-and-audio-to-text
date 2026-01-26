@@ -23,6 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { MAX_AUTO_RETRIES } from "@/config/retry";
 import { extractPageMarkers } from "@/lib/page-markers";
 import { cn } from "@/lib/utils";
 import type { Card, SubRequest } from "@/types";
@@ -132,12 +133,26 @@ export function RequestCard(props: RequestCardProps) {
   }, [card.subRequests]);
 
   const canRetryDueToPageMismatch = useMemo(() => {
-    if (card.mode === "audio" || card.status !== "complete" || !pageInfo) {
+    if (
+      isBatch ||
+      card.mode === "audio" ||
+      card.status !== "complete" ||
+      !pageInfo
+    ) {
       return false;
     }
     const totalFiles = card.totalFiles ?? card.files.length;
-    return pageInfo.count !== totalFiles;
-  }, [card.mode, card.status, pageInfo, card.totalFiles, card.files.length]);
+    const retryCount = card.retryCount ?? 0;
+    return pageInfo.count !== totalFiles && retryCount >= MAX_AUTO_RETRIES;
+  }, [
+    card.mode,
+    card.status,
+    pageInfo,
+    card.totalFiles,
+    card.files.length,
+    card.retryCount,
+    isBatch,
+  ]);
 
   const hasPageMismatch = useMemo(() => {
     if (card.mode === "audio" || !pageInfo) {
@@ -157,6 +172,28 @@ export function RequestCard(props: RequestCardProps) {
     isBatch,
     subRequestStats.completed,
     subRequestStats.total,
+  ]);
+
+  const isIncompleteAwaitingAutoRetry = useMemo(() => {
+    if (
+      isBatch ||
+      card.mode === "audio" ||
+      card.status !== "complete" ||
+      !pageInfo
+    ) {
+      return false;
+    }
+    const totalFiles = card.totalFiles ?? card.files.length;
+    const retryCount = card.retryCount ?? 0;
+    return pageInfo.count !== totalFiles && retryCount < MAX_AUTO_RETRIES;
+  }, [
+    isBatch,
+    card.mode,
+    card.status,
+    pageInfo,
+    card.totalFiles,
+    card.files.length,
+    card.retryCount,
   ]);
 
   const incompleteSubRequestsCount = useMemo(() => {
@@ -373,10 +410,13 @@ export function RequestCard(props: RequestCardProps) {
                         ? extractPageMarkers(sub.resultText)
                         : null;
                       const pageCount = pageInfoForSub?.count ?? 0;
+                      const retryCount = sub.retryCount ?? 0;
+                      const hasMismatch =
+                        sub.status === "complete" &&
+                        pageCount !== sub.fileCount;
                       const canRetry =
                         (sub.status === "failed" ||
-                          (sub.status === "complete" &&
-                            pageCount !== sub.fileCount)) &&
+                          (hasMismatch && retryCount >= MAX_AUTO_RETRIES)) &&
                         Boolean(onRetrySubRequest);
                       return (
                         <TableRow key={sub.id} className="align-middle">
@@ -489,11 +529,14 @@ export function RequestCard(props: RequestCardProps) {
             variant="ghost"
             onClick={() => props.onRetry(card)}
             disabled={
-              canRetryDueToPageMismatch
-                ? false
-                : isBatch
-                  ? card.pendingRetryCount === 0 || subRequestStats.running > 0
-                  : card.status === "processing"
+              isIncompleteAwaitingAutoRetry
+                ? true
+                : canRetryDueToPageMismatch
+                  ? false
+                  : isBatch
+                    ? card.pendingRetryCount === 0 ||
+                      subRequestStats.running > 0
+                    : card.status === "processing"
             }
           >
             Retry

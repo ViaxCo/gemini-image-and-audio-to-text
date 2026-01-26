@@ -7,6 +7,8 @@ import {
   type BatchConfig,
   batchConfig as defaultBatchConfig,
 } from "@/config/batch";
+import { MAX_AUTO_RETRIES } from "@/config/retry";
+import { extractPageMarkers } from "@/lib/page-markers";
 import {
   appendUsageTotals,
   buildFormData,
@@ -139,6 +141,12 @@ function patchSubRequests(
   return { ...card, subRequests };
 }
 
+function hasPageMismatchForSingle(text: string, totalFiles: number): boolean {
+  const pageInfo = extractPageMarkers(text);
+  if (pageInfo.count === 0) return false;
+  return pageInfo.count !== totalFiles;
+}
+
 export function useSubmitActions(opts: {
   mode: "image" | "audio";
   prompt: string;
@@ -222,6 +230,91 @@ export function useSubmitActions(opts: {
       usageTotal: computeUsageTotal(usage),
     } as Card;
   }, []);
+
+  const runSingleImage = useCallback(
+    async function runSingleImage(
+      cardId: string,
+      options?: { showErrorToast?: boolean },
+    ) {
+      const card = cardsRef.current.find((c) => c.id === cardId);
+      if (!card?.filesBlob?.length) return;
+      const filesToUse = card.filesBlob.map((f) => f.file);
+      const runner = createStreamRunner(
+        cardId,
+        {
+          onChunk: (chunk) =>
+            applyToCard(cardId, (current) => ({
+              ...current,
+              resultText: (current.resultText || "") + chunk,
+            })),
+          onFinish: ({ text, usage }) => {
+            const latest = cardsRef.current.find((c) => c.id === cardId);
+            if (!latest) return;
+            const resolvedText = text ?? latest.resultText ?? "";
+            const totalFiles = latest.totalFiles ?? latest.files.length;
+            const retryCount = latest.retryCount ?? 0;
+            const shouldAutoRetry =
+              hasPageMismatchForSingle(resolvedText, totalFiles) &&
+              retryCount < MAX_AUTO_RETRIES;
+
+            if (shouldAutoRetry) {
+              const nextRetryCount = retryCount + 1;
+              applyToCard(cardId, (current) => ({
+                ...current,
+                status: "processing",
+                resultText: undefined,
+                error: undefined,
+                usage: undefined,
+                usageTotal: undefined,
+                createdAt: Date.now(),
+                retryCount: nextRetryCount,
+              }));
+              void runSingleImage(cardId, { showErrorToast: false });
+              return;
+            }
+
+            applyToCard(cardId, (current) => ({
+              ...current,
+              status: "complete",
+              resultText: resolvedText,
+              usage,
+              usageTotal: computeUsageTotal(usage),
+              error: undefined,
+            }));
+          },
+          onError: (message) =>
+            applyToCard(cardId, (current) => ({
+              ...current,
+              status: "failed",
+              error: message,
+            })),
+          onAbort: () =>
+            applyToCard(cardId, (current) => ({
+              ...current,
+              status: "failed",
+              error: CANCELLED_MESSAGE,
+            })),
+        },
+        { showErrorToast: options?.showErrorToast ?? true },
+      );
+
+      try {
+        await runner.run(buildFormData(card.prompt, filesToUse));
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        applyToCard(cardId, (current) => ({
+          ...current,
+          status: "failed",
+          error: message,
+        }));
+        if (options?.showErrorToast) {
+          addToast(`Failed: ${message}`, "destructive");
+        }
+      }
+    },
+    [addToast, applyToCard, createStreamRunner],
+  );
 
   const scheduleBatches = useCallback(
     async (cardId: string) => {
@@ -318,19 +411,42 @@ export function useSubmitActions(opts: {
                     const buffered = buffer ? buffer.join("") : "";
                     delete ctx.pendingText[sub.id];
                     const finalText = text?.length ? text : buffered;
+                    const retryCount = sub.retryCount ?? 0;
+                    const pageCount = extractPageMarkers(finalText).count;
+                    const shouldAutoRetry =
+                      pageCount !== sub.fileCount &&
+                      retryCount < MAX_AUTO_RETRIES;
+
                     applyToCard(cardId, (current) => {
+                      const update: Partial<SubRequest> = {
+                        status: "complete",
+                        resultText: finalText,
+                        usage,
+                        finishedAt: Date.now(),
+                        error: undefined,
+                      };
+
+                      if (shouldAutoRetry) {
+                        Object.assign(update, {
+                          status: "queued",
+                          resultText: undefined,
+                          usage: undefined,
+                          startedAt: undefined,
+                          finishedAt: undefined,
+                          retryCount: retryCount + 1,
+                        });
+                      }
+
                       const next = patchSubRequests(current, {
-                        [sub.id]: {
-                          status: "complete",
-                          resultText: finalText,
-                          usage,
-                          finishedAt: Date.now(),
-                          error: undefined,
-                        },
+                        [sub.id]: update,
                       });
                       const withUsage = updateCardUsage(next, usage);
                       return hydrateBatchCard(withUsage);
                     });
+
+                    if (shouldAutoRetry) {
+                      scheduleBatches(cardId);
+                    }
                   },
                   onError: (message) => {
                     const buffer = ctx.pendingText[sub.id];
@@ -406,6 +522,9 @@ export function useSubmitActions(opts: {
           prompt,
           files: [{ name: file.name, size: file.size, type: file.type }],
           filesBlob: [{ file }],
+          extra: {
+            retryCount: 0,
+          },
         });
 
         const runner = createStreamRunner(
@@ -469,6 +588,7 @@ export function useSubmitActions(opts: {
         }),
         status: "queued",
         fileCount: chunk.files.length,
+        retryCount: 0,
       }));
 
       const id = addProcessingCard({
@@ -490,6 +610,7 @@ export function useSubmitActions(opts: {
           completedPrefixCount: 0,
           pendingRetryCount: 0,
           nextWaveEta: null,
+          retryCount: 0,
         },
       });
 
@@ -518,53 +639,12 @@ export function useSubmitActions(opts: {
       prompt,
       files: fileMetas,
       filesBlob: imageFiles.map((f) => ({ file: f })),
+      extra: {
+        retryCount: 0,
+      },
     });
     clearAllFiles();
-
-    const runner = createStreamRunner(
-      singleId,
-      {
-        onChunk: (chunk) =>
-          applyToCard(singleId, (card) => ({
-            ...card,
-            resultText: (card.resultText || "") + chunk,
-          })),
-        onFinish: ({ text, usage }) =>
-          applyToCard(singleId, (card) => ({
-            ...card,
-            status: "complete",
-            resultText: text,
-            usage,
-            usageTotal: computeUsageTotal(usage),
-            error: undefined,
-          })),
-        onError: (message) =>
-          applyToCard(singleId, (card) => ({
-            ...card,
-            status: "failed",
-            error: message,
-          })),
-        onAbort: () =>
-          applyToCard(singleId, (card) => ({
-            ...card,
-            status: "failed",
-            error: CANCELLED_MESSAGE,
-          })),
-      },
-      { showErrorToast: true },
-    );
-
-    try {
-      await runner.run(buildFormData(prompt, imageFiles));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      applyToCard(singleId, (card) => ({
-        ...card,
-        status: "failed",
-        error: message,
-      }));
-      addToast(`Failed: ${message}`, "destructive");
-    }
+    await runSingleImage(singleId, { showErrorToast: true });
   }, [
     mode,
     files,
@@ -574,7 +654,7 @@ export function useSubmitActions(opts: {
     createStreamRunner,
     applyToCard,
     scheduleBatches,
-    addToast,
+    runSingleImage,
   ]);
 
   const retrySubRequest = useCallback(
@@ -600,6 +680,7 @@ export function useSubmitActions(opts: {
               usage: undefined,
               startedAt: undefined,
               finishedAt: undefined,
+              retryCount: 0,
             },
           }),
         ),
@@ -623,39 +704,6 @@ export function useSubmitActions(opts: {
         alert("Original files not available for retry.");
         return;
       }
-      const runner = createStreamRunner(
-        card.id,
-        {
-          onChunk: (chunk) =>
-            applyToCard(card.id, (current) => ({
-              ...current,
-              resultText: (current.resultText || "") + chunk,
-            })),
-          onFinish: ({ text, usage }) =>
-            applyToCard(card.id, (current) => ({
-              ...current,
-              status: "complete",
-              resultText: text,
-              usage,
-              usageTotal: computeUsageTotal(usage),
-              error: undefined,
-            })),
-          onError: (message) =>
-            applyToCard(card.id, (current) => ({
-              ...current,
-              status: "failed",
-              error: message,
-            })),
-          onAbort: () =>
-            applyToCard(card.id, (current) => ({
-              ...current,
-              status: "failed",
-              error: CANCELLED_MESSAGE,
-            })),
-        },
-        { showErrorToast: false },
-      );
-
       applyToCard(card.id, (current) => ({
         ...current,
         status: "processing",
@@ -664,26 +712,11 @@ export function useSubmitActions(opts: {
         usage: undefined,
         usageTotal: undefined,
         createdAt: Date.now(),
+        retryCount: 0,
       }));
-
-      try {
-        await runner.run(
-          buildFormData(
-            card.prompt,
-            card.filesBlob.map((f) => f.file),
-          ),
-        );
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Unknown error";
-        applyToCard(card.id, (current) => ({
-          ...current,
-          status: "failed",
-          error: message,
-        }));
-      }
+      await runSingleImage(card.id, { showErrorToast: false });
     },
-    [applyToCard, createStreamRunner, retrySubRequest],
+    [applyToCard, retrySubRequest, runSingleImage],
   );
 
   const cancelCard = useCallback(
