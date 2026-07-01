@@ -6,7 +6,7 @@ Image → Text OCR and Audio → Text in the browser using Google Gemini and the
 
 ## Highlights
 
-- Streaming OCR/transcription via `ai` + `@ai-sdk/google` on `gemini-2.5-flash`.
+- Streaming OCR/transcription via `ai` + `@ai-sdk/google` on `gemini-3.5-flash`.
 - BYOK in the browser: key stored in `localStorage` (never sent to a server).
 - Image mode: JPEG/PNG files (≤ 10 MB each) with automatic batching (10 files per request by default).
 - Large batches stream back in original order using capped request waves (configurable via `src/config/batch.ts`).

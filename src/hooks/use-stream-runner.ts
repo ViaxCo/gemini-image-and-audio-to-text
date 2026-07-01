@@ -69,7 +69,7 @@ export function useStreamRunner(opts: {
 
           const googleByok = createGoogleGenerativeAI({ apiKey });
           const result = streamText({
-            model: googleByok("gemini-2.5-flash"),
+            model: googleByok("gemini-3.5-flash"),
             messages: [{ role: "user", content }],
             abortSignal: controller.signal,
             onAbort: () => {
