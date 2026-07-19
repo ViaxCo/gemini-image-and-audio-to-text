@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { ModelPicker } from "@/components/model-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLocalStorageString } from "@/hooks/use-local-storage";
@@ -28,6 +29,7 @@ export function ApiKeyBar({
   onToast,
 }: Props) {
   const [masked, setMasked] = useState(true);
+  const [apiKeySaveCount, setApiKeySaveCount] = useState(0);
   const {
     value: key,
     setValue: setKey,
@@ -47,106 +49,119 @@ export function ApiKeyBar({
   const hasKey = useMemo(() => key.trim().length > 0, [key]);
 
   return (
-    <div className={cn("rounded-md border p-3", className)}>
-      <label
-        htmlFor="gemini-api-key"
-        className="mb-1 block text-xs font-medium text-muted-foreground"
-      >
-        Gemini API Key (stored locally)
-      </label>
-
-      {/* Row: input + show/hide + save/clear */}
-      <div className="flex flex-col gap-2 md:flex-row md:items-center">
-        <div className="flex flex-1 items-center gap-2">
-          <Input
-            id="gemini-api-key"
-            type={masked ? "password" : "text"}
-            placeholder="AIxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-            value={key}
-            className="text-sm"
-            onChange={(e) => {
-              const v = e.target.value;
-              setKey(v);
-              onStatusChange?.({
-                savedPresent: !!saved,
-                draftPresent: !!v.trim(),
-              });
-            }}
-            aria-label="Gemini API Key"
-          />
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setMasked((v) => !v)}
-            aria-label={masked ? "Show key" : "Hide key"}
-            title={masked ? "Show" : "Hide"}
-          >
-            {masked ? "Show" : "Hide"}
-          </Button>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="secondary"
-            type="button"
-            onClick={() => {
-              const ok = save();
-              if (ok) {
-                onKeyChange?.(true);
-                onStatusChange?.({ savedPresent: true, draftPresent: true });
-                onToast?.("API key saved", "success");
-              }
-            }}
-            disabled={!hasKey}
-          >
-            Save
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              const ok = clear();
-              if (ok) {
-                onKeyChange?.(false);
-                onStatusChange?.({ savedPresent: false, draftPresent: false });
-                onToast?.("API key cleared", "success");
-              }
-            }}
-            disabled={!saved}
-          >
-            Clear
-          </Button>
-        </div>
-      </div>
-
-      {/* Status */}
-      <div className="mt-1 text-[11px] text-muted-foreground">
-        <span
-          className={isDirty ? "text-amber-600 dark:text-amber-400" : undefined}
+    <div
+      className={cn(
+        "grid gap-3 rounded-md border p-3 lg:grid-cols-[minmax(0,1fr)_18rem]",
+        className,
+      )}
+    >
+      <div className="min-w-0">
+        <label
+          htmlFor="gemini-api-key"
+          className="mb-1 block text-xs font-medium text-muted-foreground"
         >
-          {isDirty
-            ? "Unsaved key — press Save to enable Submit"
-            : saved
-              ? "Saved"
-              : "Not set"}
-        </span>
+          Gemini API Key (stored locally)
+        </label>
+
+        <div className="flex flex-col gap-2 md:flex-row md:items-center">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <Input
+              id="gemini-api-key"
+              type={masked ? "password" : "text"}
+              placeholder="AIxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              value={key}
+              className="min-w-0 text-sm"
+              onChange={(e) => {
+                const v = e.target.value;
+                setKey(v);
+                onStatusChange?.({
+                  savedPresent: !!saved,
+                  draftPresent: !!v.trim(),
+                });
+              }}
+              aria-label="Gemini API Key"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setMasked((v) => !v)}
+              aria-label={masked ? "Show key" : "Hide key"}
+              title={masked ? "Show" : "Hide"}
+            >
+              {masked ? "Show" : "Hide"}
+            </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              type="button"
+              onClick={() => {
+                const ok = save();
+                if (ok) {
+                  setApiKeySaveCount((count) => count + 1);
+                  onKeyChange?.(true);
+                  onStatusChange?.({ savedPresent: true, draftPresent: true });
+                  onToast?.("API key saved", "success");
+                }
+              }}
+              disabled={!hasKey}
+            >
+              Save
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                const ok = clear();
+                if (ok) {
+                  onKeyChange?.(false);
+                  onStatusChange?.({
+                    savedPresent: false,
+                    draftPresent: false,
+                  });
+                  onToast?.("API key cleared", "success");
+                }
+              }}
+              disabled={!saved}
+            >
+              Clear
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-1 text-[11px] text-muted-foreground">
+          <span
+            className={
+              isDirty ? "text-amber-600 dark:text-amber-400" : undefined
+            }
+          >
+            {isDirty
+              ? "Unsaved key — press Save to enable Submit"
+              : saved
+                ? "Saved"
+                : "Not set"}
+          </span>
+        </div>
+
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+          <span>
+            The API key is saved in your browser. Requests go directly to
+            Google; nothing is sent to our server.
+          </span>
+          <a
+            href="https://aistudio.google.com/app/apikey"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary underline underline-offset-2"
+            title="Open Google AI Studio in a new tab"
+          >
+            Get a free API key
+          </a>
+        </div>
       </div>
 
-      {/* Privacy */}
-      <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-        <span>
-          The API key is saved in your browser. Requests go directly to Google;
-          nothing is sent to our server.
-        </span>
-        <a
-          href="https://aistudio.google.com/app/apikey"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-primary underline underline-offset-2"
-          title="Open Google AI Studio in a new tab"
-        >
-          Get a free API key
-        </a>
-      </div>
+      {/* Remount after every save so saving the same key refreshes the list. */}
+      <ModelPicker key={apiKeySaveCount} apiKey={saved.trim()} />
     </div>
   );
 }

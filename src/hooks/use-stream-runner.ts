@@ -6,6 +6,7 @@ import type { MutableRefObject } from "react";
 import { useCallback } from "react";
 import { STORAGE_KEYS } from "@/lib/constants";
 import { formatModelError } from "@/lib/errors";
+import { DEFAULT_GEMINI_MODEL } from "@/lib/gemini-models";
 import type { FullStreamPart, UserContent } from "@/lib/stream-types";
 import { getMediaType, normalizeUsage } from "@/lib/stream-utils";
 import type { Usage as StreamUsage } from "@/types";
@@ -48,6 +49,9 @@ export function useStreamRunner(opts: {
           const apiKey =
             localStorage.getItem(STORAGE_KEYS.GEMINI_API_KEY)?.trim() || "";
           if (!apiKey) throw new Error("Missing API key");
+          const model =
+            localStorage.getItem(STORAGE_KEYS.GEMINI_MODEL) ||
+            DEFAULT_GEMINI_MODEL;
 
           const prompt = String(form.get("prompt") ?? "");
           const files = form.getAll("files") as File[];
@@ -69,7 +73,7 @@ export function useStreamRunner(opts: {
 
           const googleByok = createGoogleGenerativeAI({ apiKey });
           const result = streamText({
-            model: googleByok("gemini-3.5-flash"),
+            model: googleByok(model),
             messages: [{ role: "user", content }],
             abortSignal: controller.signal,
             onAbort: () => {

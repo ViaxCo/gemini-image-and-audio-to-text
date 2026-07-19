@@ -6,8 +6,8 @@ Image → Text OCR and Audio → Text in the browser using Google Gemini and the
 
 ## Highlights
 
-- Streaming OCR/transcription via `ai` + `@ai-sdk/google` on `gemini-3.5-flash`.
-- BYOK in the browser: key stored in `localStorage` (never sent to a server).
+- Streaming OCR/transcription via `ai` + `@ai-sdk/google` with a selectable Gemini model.
+- Gemini models load from Google after you save a browser-stored API key; Gemini 2.5 Flash is the default.
 - Image mode: JPEG/PNG files (≤ 10 MB each) with automatic batching (10 files per request by default).
 - Large batches stream back in original order using capped request waves (configurable via `src/config/batch.ts`).
 - Failed or canceled sub-requests stay in-place with inline placeholders and keep any partial text until you retry.
@@ -55,13 +55,13 @@ npm run lint
 
 --------------------------------------------------------------------------------
 
-## API Key (BYOK)
+## Gemini Configuration
 
-- Enter your Gemini API key in the “Gemini API Key” bar at the top.
-- The key is stored only in your browser (`localStorage` under `gemini_api_key`).
-- The app calls Google directly from the client; there is no server proxy.
-- `.env.local` is not required for this app. If present, it is ignored by the
-  client‑side code. Prefer entering the key in the UI.
+- Enter and save your API key in the Gemini bar. The browser stores it under `gemini_api_key`.
+- After each save, the app loads compatible text-output models from Google and excludes specialized generation, Live, embedding, and agent models.
+- The browser stores your selection under `gemini_model`. Gemini 2.5 Flash is the fallback.
+- New requests, retries, and queued batch requests use the current saved key and model. In-flight requests keep the configuration they started with.
+- The client calls Google directly without a server proxy. `.env.local` is not required.
 
 Security tips
 
@@ -119,9 +119,9 @@ Security tips
 
 ## Tech Stack
 
-- Next.js 15 (App Router), React 19
+- Next.js 16 (App Router), React 19
 - Tailwind CSS v4
-- Vercel AI SDK v5 (`ai`) + `@ai-sdk/google`
+- Vercel AI SDK v6 (`ai`) + `@ai-sdk/google`
 - Radix UI + shadcn/ui, `next-themes`, `lucide-react`
 - Biome for lint/format
 
@@ -130,7 +130,7 @@ Security tips
 ## How It Works
 
 - Entry point: `src/app/page.tsx`
-  - Wires up the API key bar, file picker, prompt editor, and request list.
+  - Wires up Gemini configuration, the file picker, prompt editor, and request list.
   - Uses hooks to manage mode, files, toasts, and streaming.
 
 - Submit flow
@@ -139,9 +139,7 @@ Security tips
     order. Partial chunks are buffered so early deltas survive even if the
     provider errors mid-stream, and the UI marks missing sections inline until
     you retry them.
-  - `use-stream-runner` emits lifecycle callbacks (`onStart`, `onChunk`,
-    `onFinish`, `onError`, `onAbort`) that the scheduler uses to update
-    sub-request status, aggregate usage, and stitch contiguous text.
+  - `use-stream-runner` reads the saved key and model when each API call starts, then emits lifecycle callbacks that update request status, usage, and streamed text.
   - Usage is normalized from either `totalUsage` or
     `response.providerMetadata.google.usageMetadata`.
 
@@ -162,6 +160,7 @@ Security tips
 Relevant source
 
 - Prompts: `src/lib/default-prompts.ts`
+- Model discovery and filtering: `src/lib/gemini-models.ts`
 - Storage keys: `src/lib/constants.ts`
 - Stream helpers/types: `src/lib/stream-utils.ts`, `src/lib/stream-types.ts`
 - UI theming: `src/components/theme-provider.tsx`, `src/components/theme-toggle.tsx`
@@ -185,14 +184,14 @@ Relevant source
   `src/lib/default-prompts.ts`.
 - UI: tweak shadcn/ui components in `src/components` and Tailwind tokens in
   `src/app/globals.css`.
-- Model: change the model name in `src/hooks/use-stream-runner.ts` if desired.
+- Model filtering and fallback: edit `src/lib/gemini-models.ts`.
 
 --------------------------------------------------------------------------------
 
 ## Privacy & Security
 
-- The API key never leaves the browser. Requests go directly to Google.
-- No app server stores or proxies your data.
+- The browser sends your API key and files directly to Google over HTTPS.
+- No app server receives, stores, or proxies your key or files.
 - To clear the key, use the UI “Clear” button or run
   `localStorage.removeItem('gemini_api_key')` in DevTools.
 
@@ -204,8 +203,11 @@ Relevant source
   - Ensure you pasted a valid key and pressed Save. The app surfaces a helpful
     message via `formatModelError`.
 
+- “Couldn’t refresh models”
+  - Check the saved key and network connection, then use the refresh button. The last selected model remains available.
+
 - “Empty response”
-  - The provider returned no text. Try another prompt or smaller batch.
+  - The provider returned no text. Try another prompt, model, or smaller batch.
 
 - 429 / rate limits
   - Audio mode submits files concurrently; Retry affected cards or reduce
