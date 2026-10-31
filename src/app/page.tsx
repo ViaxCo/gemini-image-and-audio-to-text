@@ -72,7 +72,7 @@ export default function Home() {
   const submitTitle = hasApiKey
     ? undefined
     : hasDraftKey
-      ? "Press Save in the API key bar to enable Submit"
+      ? "Press Add in the API key bar to enable Submit"
       : "Add your Gemini API key to submit";
 
   return (

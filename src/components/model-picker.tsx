@@ -94,7 +94,7 @@ export function ModelPicker({ apiKey }: { apiKey: string }) {
 
   let status = "";
   if (isLoading) status = "Loading…";
-  else if (!apiKey) status = "Save a key first";
+  else if (!apiKey) status = "Add a key first";
   else if (!error) status = `${models.length} available`;
 
   return (

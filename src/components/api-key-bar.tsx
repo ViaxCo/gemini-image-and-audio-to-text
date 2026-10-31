@@ -1,17 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { X } from "lucide-react";
+import { useEffect, useState } from "react";
 import { ModelPicker } from "@/components/model-picker";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { useLocalStorageString } from "@/hooks/use-local-storage";
+import { Input } from "@/components/ui/input";
 import { STORAGE_KEYS } from "@/lib/constants";
 import { parseKeys } from "@/lib/key-pool";
 import { cn } from "@/lib/utils";
 
 type Props = {
   className?: string;
-  // Back-compat for caller
   onKeyChange?: (present: boolean) => void;
   onStatusChange?: (status: {
     savedPresent: boolean;
@@ -29,148 +29,127 @@ export function ApiKeyBar({
   onStatusChange,
   onToast,
 }: Props) {
-  const [masked, setMasked] = useState(true);
-  const [apiKeySaveCount, setApiKeySaveCount] = useState(0);
-  const {
-    value: key,
-    setValue: setKey,
-    saved,
-    isDirty,
-    save,
-    clear,
-  } = useLocalStorageString(STORAGE_KEYS.GEMINI_API_KEY);
+  const [keys, setKeys] = useState<string[]>([]);
+  const [draft, setDraft] = useState("");
 
-  // Announce state to parent consistently
   useEffect(() => {
-    onKeyChange?.(!!saved);
-    // For initial load, treat draft as whatever input shows
-    onStatusChange?.({ savedPresent: !!saved, draftPresent: !!key.trim() });
-  }, [saved, key, onKeyChange, onStatusChange]);
+    setKeys(parseKeys(localStorage.getItem(STORAGE_KEYS.GEMINI_API_KEY)));
+  }, []);
 
-  const hasKey = useMemo(() => key.trim().length > 0, [key]);
-  const savedKeys = useMemo(() => parseKeys(saved), [saved]);
-  const savedKeysLabel = `${savedKeys.length} ${savedKeys.length === 1 ? "key" : "keys"}`;
+  useEffect(() => {
+    onKeyChange?.(keys.length > 0);
+    onStatusChange?.({
+      savedPresent: keys.length > 0,
+      draftPresent: draft.trim().length > 0,
+    });
+  }, [keys, draft, onKeyChange, onStatusChange]);
+
+  function saveKeys(next: string[]) {
+    if (next.length > 0) {
+      localStorage.setItem(STORAGE_KEYS.GEMINI_API_KEY, next.join("\n"));
+    } else {
+      localStorage.removeItem(STORAGE_KEYS.GEMINI_API_KEY);
+    }
+    setKeys(next);
+  }
+
+  function addKeys(raw: string) {
+    const added = parseKeys(raw).filter((key) => !keys.includes(key));
+    setDraft("");
+    if (added.length === 0) return;
+    saveKeys([...keys, ...added]);
+    onToast?.(
+      added.length === 1 ? "API key added" : `${added.length} API keys added`,
+      "success",
+    );
+  }
 
   return (
     <div
       className={cn(
-        "grid gap-3 rounded-md border p-3 lg:grid-cols-[minmax(0,1fr)_18rem]",
+        "grid gap-4 rounded-md border p-3 lg:grid-cols-[minmax(0,1fr)_18rem]",
         className,
       )}
     >
-      <div className="min-w-0">
-        <label
-          htmlFor="gemini-api-key"
-          className="mb-1 block text-xs font-medium text-muted-foreground"
-        >
-          Gemini API keys, one per line (stored locally)
-        </label>
-
-        <div className="flex flex-col gap-2 md:flex-row md:items-start">
-          <div className="flex min-w-0 flex-1 items-start gap-2">
-            <Textarea
-              id="gemini-api-key"
-              placeholder="AIxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-              value={key}
-              spellCheck={false}
-              autoComplete="off"
-              className={cn(
-                "min-h-9 min-w-0 font-mono text-sm",
-                masked && "[-webkit-text-security:disc]",
-              )}
-              onChange={(e) => {
-                const v = e.target.value;
-                setKey(v);
-                onStatusChange?.({
-                  savedPresent: !!saved,
-                  draftPresent: !!v.trim(),
-                });
-              }}
-              aria-label="Gemini API keys"
-            />
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setMasked((v) => !v)}
-              aria-label={masked ? "Show key" : "Hide key"}
-              title={masked ? "Show" : "Hide"}
-            >
-              {masked ? "Show" : "Hide"}
-            </Button>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="secondary"
-              type="button"
-              onClick={() => {
-                const ok = save();
-                if (ok) {
-                  setApiKeySaveCount((count) => count + 1);
-                  onKeyChange?.(true);
-                  onStatusChange?.({ savedPresent: true, draftPresent: true });
-                  onToast?.("API keys saved", "success");
-                }
-              }}
-              disabled={!hasKey}
-            >
-              Save
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                const ok = clear();
-                if (ok) {
-                  onKeyChange?.(false);
-                  onStatusChange?.({
-                    savedPresent: false,
-                    draftPresent: false,
-                  });
-                  onToast?.("API keys cleared", "success");
-                }
-              }}
-              disabled={!saved}
-            >
-              Clear
-            </Button>
-          </div>
-        </div>
-
-        <div className="mt-1 text-[11px] text-muted-foreground">
-          <span
-            className={
-              isDirty ? "text-amber-600 dark:text-amber-400" : undefined
-            }
+      <div className="min-w-0 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <label
+            htmlFor="gemini-api-key"
+            className="text-xs font-medium text-muted-foreground"
           >
-            {isDirty
-              ? "Unsaved keys — press Save to enable Submit"
-              : saved
-                ? `${savedKeysLabel} saved`
-                : "Not set"}
+            Gemini API keys
+          </label>
+          <span className="text-[11px] text-muted-foreground">
+            {keys.length === 0
+              ? "None saved"
+              : `${keys.length} saved in this browser`}
           </span>
-          {savedKeys.length > 1 &&
-            " — rate-limited requests switch to the next key. Use one key per Google project; keys from the same project share limits."}
         </div>
 
-        <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-          <span>
-            API keys are saved in your browser. Requests go directly to Google;
-            nothing is sent to our server.
-          </span>
+        <form
+          className="flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            addKeys(draft);
+          }}
+        >
+          <Input
+            id="gemini-api-key"
+            type="password"
+            placeholder="Paste one or more keys"
+            value={draft}
+            autoComplete="off"
+            className="min-w-0 font-mono text-sm"
+            onChange={(e) => setDraft(e.target.value)}
+            onPaste={(e) => {
+              e.preventDefault();
+              addKeys(e.clipboardData.getData("text"));
+            }}
+          />
+          <Button type="submit" variant="secondary" disabled={!draft.trim()}>
+            Add
+          </Button>
+        </form>
+
+        {keys.length > 0 && (
+          <ul className="flex flex-wrap gap-1.5" aria-label="Saved API keys">
+            {keys.map((key) => (
+              <li key={key}>
+                <Badge
+                  variant="outline"
+                  className="gap-0.5 py-0 pr-0 font-mono"
+                >
+                  …{key.slice(-4)}
+                  <button
+                    type="button"
+                    className="rounded-sm p-1 text-muted-foreground hover:text-foreground"
+                    aria-label={`Remove key ending ${key.slice(-4)}`}
+                    onClick={() => saveKeys(keys.filter((k) => k !== key))}
+                  >
+                    <X className="size-3" />
+                  </button>
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <p className="text-[11px] text-muted-foreground">
+          {keys.length > 1 &&
+            "Rate-limited requests switch to the next key. Use one key per Google project. "}
+          Requests go straight to Google.{" "}
           <a
             href="https://aistudio.google.com/app/apikey"
             target="_blank"
             rel="noopener noreferrer"
             className="text-primary underline underline-offset-2"
-            title="Open Google AI Studio in a new tab"
           >
             Get a free API key
           </a>
-        </div>
+        </p>
       </div>
 
-      {/* Remount after every save so saving the same key refreshes the list. */}
-      <ModelPicker key={apiKeySaveCount} apiKey={savedKeys[0] ?? ""} />
+      <ModelPicker apiKey={keys[0] ?? ""} />
     </div>
   );
 }
