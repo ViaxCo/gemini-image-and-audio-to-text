@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { ModelPicker } from "@/components/model-picker";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { useLocalStorageString } from "@/hooks/use-local-storage";
 import { STORAGE_KEYS } from "@/lib/constants";
+import { parseKeys } from "@/lib/key-pool";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -47,6 +48,8 @@ export function ApiKeyBar({
   }, [saved, key, onKeyChange, onStatusChange]);
 
   const hasKey = useMemo(() => key.trim().length > 0, [key]);
+  const savedKeys = useMemo(() => parseKeys(saved), [saved]);
+  const savedKeysLabel = `${savedKeys.length} ${savedKeys.length === 1 ? "key" : "keys"}`;
 
   return (
     <div
@@ -60,17 +63,21 @@ export function ApiKeyBar({
           htmlFor="gemini-api-key"
           className="mb-1 block text-xs font-medium text-muted-foreground"
         >
-          Gemini API Key (stored locally)
+          Gemini API keys, one per line (stored locally)
         </label>
 
-        <div className="flex flex-col gap-2 md:flex-row md:items-center">
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <Input
+        <div className="flex flex-col gap-2 md:flex-row md:items-start">
+          <div className="flex min-w-0 flex-1 items-start gap-2">
+            <Textarea
               id="gemini-api-key"
-              type={masked ? "password" : "text"}
               placeholder="AIxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
               value={key}
-              className="min-w-0 text-sm"
+              spellCheck={false}
+              autoComplete="off"
+              className={cn(
+                "min-h-9 min-w-0 font-mono text-sm",
+                masked && "[-webkit-text-security:disc]",
+              )}
               onChange={(e) => {
                 const v = e.target.value;
                 setKey(v);
@@ -79,7 +86,7 @@ export function ApiKeyBar({
                   draftPresent: !!v.trim(),
                 });
               }}
-              aria-label="Gemini API Key"
+              aria-label="Gemini API keys"
             />
             <Button
               type="button"
@@ -101,7 +108,7 @@ export function ApiKeyBar({
                   setApiKeySaveCount((count) => count + 1);
                   onKeyChange?.(true);
                   onStatusChange?.({ savedPresent: true, draftPresent: true });
-                  onToast?.("API key saved", "success");
+                  onToast?.("API keys saved", "success");
                 }
               }}
               disabled={!hasKey}
@@ -119,7 +126,7 @@ export function ApiKeyBar({
                     savedPresent: false,
                     draftPresent: false,
                   });
-                  onToast?.("API key cleared", "success");
+                  onToast?.("API keys cleared", "success");
                 }
               }}
               disabled={!saved}
@@ -136,17 +143,19 @@ export function ApiKeyBar({
             }
           >
             {isDirty
-              ? "Unsaved key — press Save to enable Submit"
+              ? "Unsaved keys — press Save to enable Submit"
               : saved
-                ? "Saved"
+                ? `${savedKeysLabel} saved`
                 : "Not set"}
           </span>
+          {savedKeys.length > 1 &&
+            " — rate-limited requests switch to the next key. Use one key per Google project; keys from the same project share limits."}
         </div>
 
         <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
           <span>
-            The API key is saved in your browser. Requests go directly to
-            Google; nothing is sent to our server.
+            API keys are saved in your browser. Requests go directly to Google;
+            nothing is sent to our server.
           </span>
           <a
             href="https://aistudio.google.com/app/apikey"
@@ -161,7 +170,7 @@ export function ApiKeyBar({
       </div>
 
       {/* Remount after every save so saving the same key refreshes the list. */}
-      <ModelPicker key={apiKeySaveCount} apiKey={saved.trim()} />
+      <ModelPicker key={apiKeySaveCount} apiKey={savedKeys[0] ?? ""} />
     </div>
   );
 }
