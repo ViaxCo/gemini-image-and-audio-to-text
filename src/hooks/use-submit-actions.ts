@@ -6,8 +6,11 @@ import type { FileItem } from "@/components/file-picker";
 import {
   type BatchConfig,
   batchConfig as defaultBatchConfig,
+  MAX_REQUESTS_PER_MINUTE,
 } from "@/config/batch";
 import { MAX_AUTO_RETRIES } from "@/config/retry";
+import { STORAGE_KEYS } from "@/lib/constants";
+import { parseKeys } from "@/lib/key-pool";
 import { extractPageMarkers } from "@/lib/page-markers";
 import {
   appendUsageTotals,
@@ -574,7 +577,13 @@ export function useSubmitActions(opts: {
       type: item.file.type,
     }));
 
-    const config = defaultBatchConfig;
+    const keyCount = parseKeys(
+      localStorage.getItem(STORAGE_KEYS.GEMINI_API_KEY),
+    ).length;
+    const config = {
+      ...defaultBatchConfig,
+      maxRequestsPerMinute: MAX_REQUESTS_PER_MINUTE * Math.max(1, keyCount),
+    };
 
     if (imageFiles.length > config.maxFilesPerRequest) {
       const chunks = chunkFiles(imageFiles, config.maxFilesPerRequest);
