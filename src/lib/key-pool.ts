@@ -23,21 +23,32 @@ function wait(ms: number, signal: AbortSignal) {
   });
 }
 
-export async function takeKey(keys: string[], signal: AbortSignal) {
+function restingKey(key: string, model: string) {
+  return `${model}:${key}`;
+}
+
+export async function takeKey(
+  keys: string[],
+  model: string,
+  signal: AbortSignal,
+) {
   while (true) {
     signal.throwIfAborted();
     const now = Date.now();
+    const freeAt = keys.map(
+      (key) => restingUntil.get(restingKey(key, model)) ?? 0,
+    );
     for (let offset = 0; offset < keys.length; offset++) {
       const index = (cursor + offset) % keys.length;
-      if ((restingUntil.get(keys[index]) ?? 0) <= now) {
+      if (freeAt[index] <= now) {
         cursor = index + 1;
         return keys[index];
       }
     }
-    const nextFree = Math.min(...keys.map((key) => restingUntil.get(key) ?? 0));
+    const nextFree = Math.min(...freeAt);
     if (nextFree === Number.POSITIVE_INFINITY) {
       throw new Error(
-        "All API keys are invalid or out of daily quota. Add another key or reload tomorrow.",
+        `None of your API keys can use ${model} now. They are invalid, out of daily quota, or do not have this model. Add another key, pick another model, or try again tomorrow.`,
       );
     }
     await wait(nextFree - now, signal);
@@ -51,18 +62,23 @@ function restMsAfter(error: APICallError) {
     const delay = body.match(/"retryDelay":\s*"(\d+(?:\.\d+)?)s"/)?.[1];
     return delay ? Number(delay) * 1000 : RATE_LIMIT_REST_MS;
   }
-  if (error.statusCode === 403 || body.includes("API_KEY_INVALID"))
+  if (
+    error.statusCode === 403 ||
+    error.statusCode === 404 ||
+    body.includes("API_KEY_INVALID")
+  )
     return Number.POSITIVE_INFINITY;
   if (error.isRetryable) return SERVER_ERROR_REST_MS;
 }
 
-export function restKeyAfter(key: string, error: unknown) {
+export function restKeyAfter(key: string, model: string, error: unknown) {
   if (!APICallError.isInstance(error)) return false;
   const restMs = restMsAfter(error);
   if (restMs === undefined) return false;
+  const id = restingKey(key, model);
   restingUntil.set(
-    key,
-    Math.max(restingUntil.get(key) ?? 0, Date.now() + restMs),
+    id,
+    Math.max(restingUntil.get(id) ?? 0, Date.now() + restMs),
   );
   return true;
 }

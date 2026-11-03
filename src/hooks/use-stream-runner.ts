@@ -74,7 +74,7 @@ export function useStreamRunner(opts: {
           }
 
           for (let attempt = 0; ; attempt++) {
-            const apiKey = await takeKey(keys, controller.signal);
+            const apiKey = await takeKey(keys, model, controller.signal);
             let switchKey = false;
             const googleByok = createGoogleGenerativeAI({ apiKey });
             const result = streamText({
@@ -117,7 +117,7 @@ export function useStreamRunner(opts: {
               if (type === "error") {
                 const error = (part as { error?: unknown }).error;
                 if (
-                  restKeyAfter(apiKey, error) &&
+                  restKeyAfter(apiKey, model, error) &&
                   !gotData &&
                   attempt < MAX_KEY_SWITCHES
                 ) {
