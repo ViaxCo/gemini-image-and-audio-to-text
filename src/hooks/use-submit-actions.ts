@@ -4,9 +4,9 @@ import type { MutableRefObject } from "react";
 import { useCallback, useEffect, useRef } from "react";
 import type { FileItem } from "@/components/file-picker";
 import {
-  type BatchConfig,
-  batchConfig as defaultBatchConfig,
-  MAX_REQUESTS_PER_MINUTE,
+  MAX_FILES_PER_REQUEST,
+  MAX_IN_FLIGHT_BYTES,
+  MAX_REQUESTS_PER_KEY,
 } from "@/config/batch";
 import { MAX_AUTO_RETRIES } from "@/config/retry";
 import { STORAGE_KEYS } from "@/lib/constants";
@@ -43,15 +43,12 @@ type StreamRunnerFactory = (
   cancel: () => void;
 };
 
+type BatchJob = { subId: string; retryCount: number };
+
 type BatchContext = {
-  cardId: string;
   prompt: string;
-  config: BatchConfig;
   filesBySubId: Record<string, File[]>;
-  order: string[];
-  schedulerActive: boolean;
-  cooldownHandle: ReturnType<typeof setTimeout> | null;
-  pendingText: Record<string, string[]>;
+  queue: BatchJob[];
 };
 
 const CANCELLED_MESSAGE = "Canceled";
@@ -126,10 +123,6 @@ function hydrateBatchCard(card: Card): Card {
           : pendingRetryCount > 0
             ? "failed"
             : card.status,
-    nextWaveEta:
-      anyQueuedOrRunning || pendingRetryCount > 0
-        ? (card.nextWaveEta ?? null)
-        : null,
   };
 }
 
@@ -142,6 +135,10 @@ function patchSubRequests(
     updates[sub.id] ? { ...sub, ...updates[sub.id] } : sub,
   );
   return { ...card, subRequests };
+}
+
+function sizeOf(files: File[]) {
+  return files.reduce((total, file) => total + file.size, 0);
 }
 
 function hasPageMismatchForSingle(text: string, totalFiles: number): boolean {
@@ -179,6 +176,19 @@ export function useSubmitActions(opts: {
   }, [cards]);
 
   const batchesRef = useRef<Record<string, BatchContext>>({});
+  const inFlightRef = useRef({ requests: 0, bytes: 0 });
+
+  useEffect(() => {
+    const ids = new Set(cards.map((card) => card.id));
+    for (const [cardId, ctx] of Object.entries(batchesRef.current)) {
+      if (ids.has(cardId)) continue;
+      ctx.queue = [];
+      delete batchesRef.current[cardId];
+      for (const [key, controller] of Object.entries(controllersRef.current)) {
+        if (key.startsWith(`${cardId}:`)) controller?.abort();
+      }
+    }
+  }, [cards, controllersRef]);
 
   const applyToCard = useCallback(
     (cardId: string, mutator: (card: Card) => Card) => {
@@ -319,200 +329,95 @@ export function useSubmitActions(opts: {
     [addToast, applyToCard, createStreamRunner],
   );
 
-  const scheduleBatches = useCallback(
-    async (cardId: string) => {
-      const ctx = batchesRef.current[cardId];
-      if (!ctx || ctx.schedulerActive) return;
-      if (!ctx.pendingText) ctx.pendingText = {};
-      ctx.schedulerActive = true;
-
-      const runWave = async () => {
-        while (true) {
-          const card = cardsRef.current.find((c) => c.id === cardId);
-          if (!card || !card.subRequests) break;
-
-          const queued = card.subRequests.filter(
-            (sub) => sub.status === "queued",
-          );
-          if (queued.length === 0) {
-            ctx.schedulerActive = false;
-            if (card.nextWaveEta) {
-              applyToCard(cardId, (current) => ({
-                ...current,
-                nextWaveEta: null,
-              }));
-            }
-            return;
-          }
-
-          const wave = queued.slice(0, ctx.config.maxRequestsPerMinute);
-          const hasMore = queued.length > wave.length;
-          const startedAt = Date.now();
-
-          applyToCard(cardId, (current) => {
-            const updates: Record<string, Partial<SubRequest>> = {};
-            for (const sub of wave) {
-              updates[sub.id] = {
-                status: "running",
-                startedAt,
-                error: undefined,
-              };
-            }
-            const patched = patchSubRequests(current, updates);
-            return {
-              ...hydrateBatchCard(patched),
-              nextWaveEta: hasMore
-                ? startedAt + ctx.config.requestWaveCooldownMs
-                : null,
-            };
-          });
-
-          await Promise.allSettled(
-            wave.map(async (sub) => {
-              const filesForSub = ctx.filesBySubId[sub.id];
-              if (!filesForSub?.length) {
-                applyToCard(cardId, (current) =>
-                  hydrateBatchCard(
-                    patchSubRequests(current, {
-                      [sub.id]: {
-                        status: "failed",
-                        error: "Missing chunk files",
-                        finishedAt: Date.now(),
-                      },
-                    }),
-                  ),
-                );
-                return;
-              }
-
-              ctx.pendingText[sub.id] = [];
-
-              const runner = createStreamRunner(
-                sub.id,
-                {
-                  onChunk: (chunk) => {
-                    let buffer = ctx.pendingText[sub.id];
-                    if (!buffer) {
-                      buffer = [];
-                      ctx.pendingText[sub.id] = buffer;
-                    }
-                    buffer.push(chunk);
-                    const partial = buffer.join("");
-                    if (!partial) return;
-                    applyToCard(cardId, (current) =>
-                      hydrateBatchCard(
-                        patchSubRequests(current, {
-                          [sub.id]: {
-                            resultText: partial,
-                          },
-                        }),
-                      ),
-                    );
-                  },
-                  onFinish: ({ text, usage }) => {
-                    const buffer = ctx.pendingText[sub.id];
-                    const buffered = buffer ? buffer.join("") : "";
-                    delete ctx.pendingText[sub.id];
-                    const finalText = text?.length ? text : buffered;
-                    const retryCount = sub.retryCount ?? 0;
-                    const pageCount = extractPageMarkers(finalText).count;
-                    const shouldAutoRetry =
-                      pageCount !== sub.fileCount &&
-                      retryCount < MAX_AUTO_RETRIES;
-
-                    applyToCard(cardId, (current) => {
-                      const update: Partial<SubRequest> = {
-                        status: "complete",
-                        resultText: finalText,
-                        usage,
-                        finishedAt: Date.now(),
-                        error: undefined,
-                      };
-
-                      if (shouldAutoRetry) {
-                        Object.assign(update, {
-                          status: "queued",
-                          resultText: undefined,
-                          usage: undefined,
-                          startedAt: undefined,
-                          finishedAt: undefined,
-                          retryCount: retryCount + 1,
-                        });
-                      }
-
-                      const next = patchSubRequests(current, {
-                        [sub.id]: update,
-                      });
-                      const withUsage = updateCardUsage(next, usage);
-                      return hydrateBatchCard(withUsage);
-                    });
-
-                    if (shouldAutoRetry) {
-                      scheduleBatches(cardId);
-                    }
-                  },
-                  onError: (message) => {
-                    const buffer = ctx.pendingText[sub.id];
-                    const buffered = buffer ? buffer.join("") : "";
-                    delete ctx.pendingText[sub.id];
-                    applyToCard(cardId, (current) =>
-                      hydrateBatchCard(
-                        patchSubRequests(current, {
-                          [sub.id]: {
-                            status: "failed",
-                            error: message,
-                            finishedAt: Date.now(),
-                            ...(buffered ? { resultText: buffered } : {}),
-                          },
-                        }),
-                      ),
-                    );
-                  },
-                  onAbort: () => {
-                    const buffer = ctx.pendingText[sub.id];
-                    const buffered = buffer ? buffer.join("") : "";
-                    delete ctx.pendingText[sub.id];
-                    applyToCard(cardId, (current) =>
-                      hydrateBatchCard(
-                        patchSubRequests(current, {
-                          [sub.id]: {
-                            status: "canceled",
-                            error: CANCELLED_MESSAGE,
-                            finishedAt: Date.now(),
-                            ...(buffered ? { resultText: buffered } : {}),
-                          },
-                        }),
-                      ),
-                    );
-                  },
-                },
-                { showErrorToast: true },
-              );
-
-              await runner.run(buildFormData(ctx.prompt, filesForSub));
-            }),
-          );
-
-          if (hasMore) {
-            await new Promise<void>((resolve) => {
-              ctx.cooldownHandle = setTimeout(() => {
-                ctx.cooldownHandle = null;
-                resolve();
-              }, ctx.config.requestWaveCooldownMs);
-            });
-          }
-        }
-
-        ctx.schedulerActive = false;
+  const runSub = useCallback(
+    async (cardId: string, ctx: BatchContext, job: BatchJob) => {
+      const { subId, retryCount } = job;
+      const files = ctx.filesBySubId[subId];
+      const chunks: string[] = [];
+      const patchSub = (update: Partial<SubRequest>) =>
+        applyToCard(cardId, (current) =>
+          hydrateBatchCard(patchSubRequests(current, { [subId]: update })),
+        );
+      const failSub = (update: Partial<SubRequest>) => {
+        const partial = chunks.join("");
+        patchSub({
+          ...update,
+          finishedAt: Date.now(),
+          ...(partial ? { resultText: partial } : {}),
+        });
       };
 
-      try {
-        await runWave();
-      } finally {
-        ctx.schedulerActive = false;
-      }
+      patchSub({ status: "running", startedAt: Date.now(), error: undefined });
+
+      const runner = createStreamRunner(
+        subId,
+        {
+          onChunk: (chunk) => chunks.push(chunk),
+          onFinish: ({ text, usage }) => {
+            const shouldAutoRetry =
+              extractPageMarkers(text).count !== files.length &&
+              retryCount < MAX_AUTO_RETRIES;
+            applyToCard(cardId, (current) => {
+              const update: Partial<SubRequest> = shouldAutoRetry
+                ? {
+                    status: "queued",
+                    resultText: undefined,
+                    usage: undefined,
+                    startedAt: undefined,
+                    finishedAt: undefined,
+                    retryCount: retryCount + 1,
+                  }
+                : {
+                    status: "complete",
+                    resultText: text,
+                    usage,
+                    finishedAt: Date.now(),
+                    error: undefined,
+                  };
+              const next = patchSubRequests(current, { [subId]: update });
+              return hydrateBatchCard(updateCardUsage(next, usage));
+            });
+            if (shouldAutoRetry)
+              ctx.queue.push({ subId, retryCount: retryCount + 1 });
+          },
+          onError: (message) => failSub({ status: "failed", error: message }),
+          onAbort: () =>
+            failSub({ status: "canceled", error: CANCELLED_MESSAGE }),
+        },
+        { showErrorToast: true },
+      );
+
+      await runner.run(buildFormData(ctx.prompt, files));
     },
     [applyToCard, createStreamRunner, updateCardUsage],
+  );
+
+  const pumpBatches = useCallback(
+    function pumpBatches() {
+      const inFlight = inFlightRef.current;
+      const keyCount = parseKeys(
+        localStorage.getItem(STORAGE_KEYS.GEMINI_API_KEY),
+      ).length;
+      const maxRequests = MAX_REQUESTS_PER_KEY * Math.max(1, keyCount);
+      for (const [cardId, ctx] of Object.entries(batchesRef.current)) {
+        while (ctx.queue.length) {
+          if (inFlight.requests >= maxRequests) return;
+          const [job] = ctx.queue;
+          const bytes = sizeOf(ctx.filesBySubId[job.subId]);
+          if (inFlight.requests && inFlight.bytes + bytes > MAX_IN_FLIGHT_BYTES)
+            return;
+          ctx.queue.shift();
+          inFlight.requests += 1;
+          inFlight.bytes += bytes;
+          void runSub(cardId, ctx, job).finally(() => {
+            inFlight.requests -= 1;
+            inFlight.bytes -= bytes;
+            pumpBatches();
+          });
+        }
+      }
+    },
+    [runSub],
   );
 
   const submit = useCallback(async () => {
@@ -577,16 +482,8 @@ export function useSubmitActions(opts: {
       type: item.file.type,
     }));
 
-    const keyCount = parseKeys(
-      localStorage.getItem(STORAGE_KEYS.GEMINI_API_KEY),
-    ).length;
-    const config = {
-      ...defaultBatchConfig,
-      maxRequestsPerMinute: MAX_REQUESTS_PER_MINUTE * Math.max(1, keyCount),
-    };
-
-    if (imageFiles.length > config.maxFilesPerRequest) {
-      const chunks = chunkFiles(imageFiles, config.maxFilesPerRequest);
+    if (imageFiles.length > MAX_FILES_PER_REQUEST) {
+      const chunks = chunkFiles(imageFiles, MAX_FILES_PER_REQUEST);
       const batchId = crypto.randomUUID();
       const subRequests: SubRequest[] = chunks.map((chunk, index) => ({
         id: `${batchId}:${index}`,
@@ -609,16 +506,11 @@ export function useSubmitActions(opts: {
         extra: {
           isBatch: true,
           totalFiles: imageFiles.length,
-          batchSize: config.maxFilesPerRequest,
-          batchConfig: {
-            maxFilesPerRequest: config.maxFilesPerRequest,
-            maxRequestsPerMinute: config.maxRequestsPerMinute,
-          },
+          batchSize: MAX_FILES_PER_REQUEST,
           subRequests,
           combinedText: "",
           completedPrefixCount: 0,
           pendingRetryCount: 0,
-          nextWaveEta: null,
           retryCount: 0,
         },
       });
@@ -628,18 +520,13 @@ export function useSubmitActions(opts: {
         filesBySubId[subRequests[index].id] = chunk.files;
       });
       batchesRef.current[id] = {
-        cardId: id,
         prompt,
-        config,
         filesBySubId,
-        order: chunks.map((_, index) => `${id}:${index}`),
-        schedulerActive: false,
-        cooldownHandle: null,
-        pendingText: {},
+        queue: subRequests.map((sub) => ({ subId: sub.id, retryCount: 0 })),
       };
 
       clearAllFiles();
-      scheduleBatches(id);
+      pumpBatches();
       return;
     }
 
@@ -662,7 +549,7 @@ export function useSubmitActions(opts: {
     clearAllFiles,
     createStreamRunner,
     applyToCard,
-    scheduleBatches,
+    pumpBatches,
     runSingleImage,
   ]);
 
@@ -673,12 +560,6 @@ export function useSubmitActions(opts: {
         addToast("Batch context missing for retry", "destructive");
         return;
       }
-      const filesForSub = ctx.filesBySubId[subRequestId];
-      if (!filesForSub?.length) {
-        addToast("Original files unavailable for retry", "destructive");
-        return;
-      }
-      ctx.pendingText[subRequestId] = [];
       applyToCard(cardId, (current) =>
         hydrateBatchCard(
           patchSubRequests(current, {
@@ -694,9 +575,10 @@ export function useSubmitActions(opts: {
           }),
         ),
       );
-      scheduleBatches(cardId);
+      ctx.queue.push({ subId: subRequestId, retryCount: 0 });
+      pumpBatches();
     },
-    [addToast, applyToCard, scheduleBatches],
+    [addToast, applyToCard, pumpBatches],
   );
 
   const retry = useCallback(
@@ -732,11 +614,7 @@ export function useSubmitActions(opts: {
     (card: Card) => {
       if (card.isBatch) {
         const ctx = batchesRef.current[card.id];
-        if (ctx?.cooldownHandle) {
-          clearTimeout(ctx.cooldownHandle);
-          ctx.cooldownHandle = null;
-        }
-        if (ctx) ctx.schedulerActive = false;
+        if (ctx) ctx.queue = [];
 
         Object.entries(controllersRef.current).forEach(([key, controller]) => {
           if (key.startsWith(`${card.id}:`)) controller?.abort();

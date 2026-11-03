@@ -38,13 +38,8 @@ export type Card = {
   isBatch?: boolean;
   totalFiles?: number;
   batchSize?: number;
-  batchConfig?: {
-    maxFilesPerRequest: number;
-    maxRequestsPerMinute: number;
-  };
   subRequests?: SubRequest[];
   completedPrefixCount?: number;
   combinedText?: string;
   pendingRetryCount?: number;
-  nextWaveEta?: number | null;
 };

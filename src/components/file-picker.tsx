@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { batchConfig as defaultBatchConfig } from "@/config/batch";
+import { MAX_FILES_PER_REQUEST } from "@/config/batch";
 import { mirrorFileListToInput } from "@/lib/dom";
 import { cn } from "@/lib/utils";
 
@@ -24,7 +24,6 @@ export function FilePicker(props: {
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragActive, setDragActive] = useState(false);
-  const config = defaultBatchConfig;
 
   // When the parent clears all files (e.g., after Submit), also reset
   // the hidden native input so selecting the same files fires `change` again.
@@ -42,7 +41,7 @@ export function FilePicker(props: {
   const plannedRequests = isAudio
     ? totalFiles
     : totalFiles > 0
-      ? Math.max(1, Math.ceil(totalFiles / config.maxFilesPerRequest))
+      ? Math.max(1, Math.ceil(totalFiles / MAX_FILES_PER_REQUEST))
       : 0;
 
   return (

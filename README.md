@@ -9,7 +9,7 @@ Image → Text OCR and Audio → Text in the browser using Google Gemini and the
 - Streaming OCR/transcription via `ai` + `@ai-sdk/google` with a selectable Gemini model.
 - Gemini models load from Google after you save a browser-stored API key; Gemini 2.5 Flash is the default.
 - Image mode: JPEG/PNG files (≤ 10 MB each) with automatic batching (10 files per request by default).
-- Large batches stream back in original order using capped request waves (configurable via `src/config/batch.ts`).
+- Large batches run as a rolling queue: a new request starts as soon as one finishes, up to a limit per API key and a memory budget (see `src/config/batch.ts`). Results stay in original order.
 - Failed or canceled sub-requests stay in-place with inline placeholders and keep any partial text until you retry.
 - Audio mode: up to 10 files (≤ 20 MB each), each processed concurrently.
 - Token usage panel (input/output/total/reasoning) when the provider returns it.
@@ -88,20 +88,23 @@ Security tips
 4) Submit and monitor
 
 - Streaming text appears in a request card. View as Preview (Markdown-rendered)
-  or Raw. Large image batches display a per-request table with statuses,
-  countdowns between waves, and one-click retries. Cancel, Retry, Copy, Expand,
+  or Raw. Large image batches display a per-request table with statuses
+  and one-click retries. Cancel, Retry, Copy, Expand,
   or Download as `.md`/`.docx`.
 
 --------------------------------------------------------------------------------
 
 ## Batch Processing & Configuration
 
-- Image submissions exceeding the per-request cap are partitioned into waves.
-- Defaults live in `src/config/batch.ts` and can be overridden via environment
-  variables (`NEXT_PUBLIC_MAX_FILES_PER_REQUEST`,
-  `NEXT_PUBLIC_MAX_REQUESTS_PER_MINUTE`).
-- `REQUEST_WAVE_COOLDOWN_MS` is derived from the request rate to throttle the
-  next wave; each card shows the countdown for transparency.
+- Image submissions exceeding the per-request cap are split into requests.
+- Requests run from a queue. At most `NEXT_PUBLIC_MAX_REQUESTS_PER_MINUTE`
+  requests per saved API key run at the same time (default 5).
+- The files of all running requests must fit in `MAX_IN_FLIGHT_BYTES`
+  (600 MB). This keeps browser memory low for batches of 1,000+ images.
+- When a key hits a rate limit, is invalid, is out of daily quota, or does not
+  have the selected model (404), the request moves to the next key.
+- Defaults live in `src/config/batch.ts`. Override the per-request cap with
+  `NEXT_PUBLIC_MAX_FILES_PER_REQUEST`.
 - Sub-requests stream back in original file order. Completed chunks are stitched
   into the combined output while failed chunks expose dedicated retry controls.
 
@@ -110,8 +113,9 @@ Security tips
 ## Limits and Formats
 
 - Images: `image/jpeg`, `image/png`, ≤ 10 MB per file.
-- Batching defaults: 10 images per request, 10 request waves per minute (tunable
-  via `NEXT_PUBLIC_MAX_FILES_PER_REQUEST` / `NEXT_PUBLIC_MAX_REQUESTS_PER_MINUTE`).
+- Batching defaults: 10 images per request, 5 running requests per API key
+  (tunable via `NEXT_PUBLIC_MAX_FILES_PER_REQUEST` /
+  `NEXT_PUBLIC_MAX_REQUESTS_PER_MINUTE`).
 - Audio: MP3, M4A, WAV, AAC, OGG, FLAC, AIFF/AIF, ≤ 20 MB per file, ≤ 10 files per submission.
 - Large audio: compress or trim before uploading (inline upload limit).
 
@@ -134,11 +138,10 @@ Security tips
   - Uses hooks to manage mode, files, toasts, and streaming.
 
 - Submit flow
-  - `use-submit-actions` now chunks large image submissions, manages a
-    configurable wave scheduler, and dispatches sub-requests while preserving
-    order. Partial chunks are buffered so early deltas survive even if the
-    provider errors mid-stream, and the UI marks missing sections inline until
-    you retry them.
+  - `use-submit-actions` chunks large image submissions and runs them from a
+    rolling queue while preserving order. Partial text is kept if the provider
+    errors mid-stream, and the UI marks missing sections inline until you retry
+    them.
   - `use-stream-runner` reads the saved key and model when each API call starts, then emits lifecycle callbacks that update request status, usage, and streamed text.
   - Usage is normalized from either `totalUsage` or
     `response.providerMetadata.google.usageMetadata`.
@@ -148,7 +151,7 @@ Security tips
     breakdown, Markdown preview, copy/expand/download actions, and Retry.
   - Audio requests render an inline custom audio player for the original file.
   - Batch requests add a scrollable sub-request table with status badges,
-    wave countdowns, and per-chunk retry controls while keeping the combined
+    and per-chunk retry controls while keeping the combined
     preview contiguous.
 
 - Downloads: `src/components/download-menu.tsx`

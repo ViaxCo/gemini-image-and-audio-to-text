@@ -1,6 +1,6 @@
 "use client";
 import { X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AudioPlayer } from "@/components/audio-player";
@@ -54,28 +54,8 @@ const statusTone: Record<SubRequest["status"], string> = {
 
 export function RequestCard(props: RequestCardProps) {
   const { card, onRetrySubRequest } = props;
-  const [waveCountdown, setWaveCountdown] = useState<number | null>(null);
   const isBatch = Boolean(card.isBatch);
   const displayText = card.combinedText ?? card.resultText ?? "";
-
-  useEffect(() => {
-    if (!card.nextWaveEta) {
-      setWaveCountdown(null);
-      return;
-    }
-    const target = card.nextWaveEta;
-    const tick = () => {
-      const diff = target - Date.now();
-      if (diff <= 0) {
-        setWaveCountdown(null);
-        return;
-      }
-      setWaveCountdown(Math.ceil(diff / 1000));
-    };
-    tick();
-    const id = window.setInterval(tick, 1000);
-    return () => window.clearInterval(id);
-  }, [card.nextWaveEta]);
 
   const pageInfo = useMemo(() => {
     if (card.mode === "audio") {
@@ -320,9 +300,6 @@ export function RequestCard(props: RequestCardProps) {
             </span>
             <span>{subRequestStats.running} running</span>
             <span>{subRequestStats.queued} queued</span>
-            {waveCountdown !== null ? (
-              <span aria-live="polite">Next wave in {waveCountdown}s</span>
-            ) : null}
             {card.pendingRetryCount ? (
               <Badge
                 variant="outline"
