@@ -1,9 +1,8 @@
 "use client";
 
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { AudioPlayer } from "@/components/audio-player";
 import { DownloadMenu } from "@/components/download-menu";
+import { Markdown } from "@/components/markdown";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -123,9 +122,7 @@ export function ResultDialog(props: ResultDialogProps) {
               </pre>
             ) : (
               <div className="text-sm max-h-[45vh] overflow-auto border rounded p-3">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {displayText || ""}
-                </ReactMarkdown>
+                <Markdown text={displayText || ""} />
               </div>
             )}
           </div>

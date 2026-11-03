@@ -1,10 +1,9 @@
 "use client";
 import { X } from "lucide-react";
 import { useMemo } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { AudioPlayer } from "@/components/audio-player";
 import { DownloadMenu } from "@/components/download-menu";
+import { Markdown } from "@/components/markdown";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -463,9 +462,7 @@ export function RequestCard(props: RequestCardProps) {
               </pre>
             ) : (
               <div className="max-h-64 overflow-auto text-sm border rounded p-2">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {displayText}
-                </ReactMarkdown>
+                <Markdown text={displayText} />
               </div>
             )}
           </div>
