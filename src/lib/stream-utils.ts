@@ -132,3 +132,15 @@ export function normalizeUsage(
     reasoningTokens: usageFromProvider.thoughtsTokenCount,
   };
 }
+
+export function readAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = reader.result as string;
+      resolve(url.slice(url.indexOf(",") + 1));
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}

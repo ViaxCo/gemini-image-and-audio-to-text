@@ -1,6 +1,6 @@
 export type UserContent =
   | { type: "text"; text: string }
-  | { type: "file"; data: Uint8Array; mediaType: string };
+  | { type: "file"; data: string; mediaType: string };
 
 export type FullStreamPart =
   | { type: "text"; text?: string }

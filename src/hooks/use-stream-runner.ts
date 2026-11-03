@@ -10,7 +10,7 @@ import { formatModelError } from "@/lib/errors";
 import { DEFAULT_GEMINI_MODEL } from "@/lib/gemini-models";
 import { parseKeys, restKeyAfter, takeKey } from "@/lib/key-pool";
 import type { FullStreamPart, UserContent } from "@/lib/stream-types";
-import { getMediaType, normalizeUsage } from "@/lib/stream-utils";
+import { getMediaType, normalizeUsage, readAsBase64 } from "@/lib/stream-utils";
 import type { Usage as StreamUsage } from "@/types";
 
 type StreamRunnerCallbacks = {
@@ -68,7 +68,7 @@ export function useStreamRunner(opts: {
           for (const f of files) {
             content.push({
               type: "file",
-              data: new Uint8Array(await f.arrayBuffer()),
+              data: await readAsBase64(f),
               mediaType: getMediaType(f),
             });
           }
